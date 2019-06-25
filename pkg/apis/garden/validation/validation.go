@@ -42,6 +42,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+
+	utils2 "github.com/gardener/gardener-extensions/controllers/provider-openstack/pkg/utils"
 )
 
 var availableDNS, availableProxyMode sets.String
@@ -194,14 +196,23 @@ func ValidateCloudProfileSpec(spec *garden.CloudProfileSpec, fldPath *field.Path
 
 		floatingPoolPath := fldPath.Child("openstack", "constraints", "floatingPools")
 		if len(spec.OpenStack.Constraints.FloatingPools) == 0 {
-			allErrs = append(allErrs, field.Required(floatingPoolPath, "must provide at least one floating pool"))
+			allErrs = append(allErrs, field.Required(floatingPoolPath, "must provide a floating pool"))
 		}
 		for i, pool := range spec.OpenStack.Constraints.FloatingPools {
 			idxPath := floatingPoolPath.Index(i)
-			namePath := idxPath.Child("name")
 			if len(pool.Name) == 0 {
+				namePath := idxPath.Child("name")
 				allErrs = append(allErrs, field.Required(namePath, "must provide a name"))
 			}
+			loadBalancerClassesPath := idxPath.Child( "loadBalancerClasses")
+			for i, class := range pool.LoadBalancerClasses {
+				idxPath := loadBalancerClassesPath.Index(i)
+				if len(class.Name) == 0 {
+					namePath := idxPath.Child("name")
+					allErrs = append(allErrs, field.Required(namePath, "must provide a name"))
+				}
+			}
+
 		}
 
 		loadBalancerProviderPath := fldPath.Child("openstack", "constraints", "loadBalancerProviders")
@@ -1334,6 +1345,17 @@ func validateCloud(cloud garden.Cloud, fldPath *field.Path) field.ErrorList {
 	if openStack != nil {
 		if len(openStack.FloatingPoolName) == 0 {
 			allErrs = append(allErrs, field.Required(openStackPath.Child("floatingPoolName"), "must specify a floating pool name"))
+		}
+
+		loadBalancerClassesPath := openStackPath.Child("loadBalancerClasses")
+		for i, class := range openStack.LoadBalancerClasses {
+			idxPath := loadBalancerClassesPath.Index(i)
+			if utils2.IsEmptyString(class.FloatingNetworkID) && utils2.IsEmptyString(class.SubnetID) {
+				allErrs = append(allErrs, field.Required(idxPath, "floatingNetworkID or subnetID must be specified for floating pool class"))
+			}
+			if !utils2.IsEmptyString(class.SubnetID) && !utils2.IsEmptyString(class.FloatingSubnetID) {
+				allErrs = append(allErrs, field.Required(idxPath, "only floatingSubnetID or subnetID can be specidied for floating pool class"))
+			}
 		}
 
 		if len(openStack.LoadBalancerProvider) == 0 {
