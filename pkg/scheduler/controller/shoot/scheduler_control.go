@@ -180,9 +180,10 @@ func determineSeed(shoot *gardencorev1beta1.Shoot, seedLister gardencorelisters.
 		return nil, err
 	}
 
-	candidates, err := getCandidates(shoot, filteredSeeds, strategy)
+	candidates, err := getCandidates(cloudProfile, shoot, filteredSeeds, strategy)
 	if err != nil {
 		return nil, err
+
 	}
 
 	filteredCandidates, err := filterCandidates(shoot, candidates)
@@ -195,8 +196,8 @@ func determineSeed(shoot *gardencorev1beta1.Shoot, seedLister gardencorelisters.
 
 func filterSeedsMatchingSeedSelector(cloudProfile *gardencorev1beta1.CloudProfile, seedList []*gardencorev1beta1.Seed) ([]*gardencorev1beta1.Seed, error) {
 	selector := &metav1.LabelSelector{}
-	if cloudProfile.Spec.SeedSelector != nil {
-		selector = cloudProfile.Spec.SeedSelector
+	if cloudProfile.Spec.SeedSelector != nil && cloudProfile.Spec.SeedSelector.LabelSelector != nil {
+		selector = cloudProfile.Spec.SeedSelector.LabelSelector
 	}
 	seedSelector, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
@@ -218,12 +219,21 @@ func filterSeedsMatchingSeedSelector(cloudProfile *gardencorev1beta1.CloudProfil
 	return matchingSeeds, nil
 }
 
-func getCandidates(shoot *gardencorev1beta1.Shoot, seedList []*gardencorev1beta1.Seed, strategy config.CandidateDeterminationStrategy) ([]*gardencorev1beta1.Seed, error) {
+func getCandidates(cloudProfile *gardencorev1beta1.CloudProfile, shoot *gardencorev1beta1.Shoot, seedList []*gardencorev1beta1.Seed, strategy config.CandidateDeterminationStrategy) ([]*gardencorev1beta1.Seed, error) {
 	var candidates []*gardencorev1beta1.Seed
+	var providers []string
 
+	if cloudProfile.Spec.SeedSelector != nil {
+		providers = cloudProfile.Spec.SeedSelector.Providers
+	}
 	switch {
 	case shoot.Spec.Purpose != nil && *shoot.Spec.Purpose == gardencorev1beta1.ShootPurposeTesting:
 		candidates = determineCandidatesOfSameProvider(seedList, shoot)
+	case strategy == config.Selector:
+		if matchProvider(cloudProfile.Spec.Type, shoot.Spec.Provider.Type, providers) {
+			candidates = determineCandidatesWithSameRegionStrategy(seedList, shoot)
+		}
+		candidates = addCanditatesWithMatchingProviders(providers, seedList, shoot, candidates)
 	case strategy == config.SameRegion:
 		candidates = determineCandidatesWithSameRegionStrategy(seedList, shoot)
 	case strategy == config.MinimalDistance:
@@ -278,11 +288,39 @@ func getSeedWithLeastShootsDeployed(seedList []*gardencorev1beta1.Seed, shootLis
 	return bestCandidate, nil
 }
 
+func matchProvider(seed, shoot string, providers []string) bool {
+	if len(providers) == 0 {
+		return seed == shoot
+	}
+	for _, p := range providers {
+		if p == "*" || p == seed {
+			return true
+		}
+	}
+	return false
+}
+
+func addCanditatesWithMatchingProviders(providers []string, seedList []*gardencorev1beta1.Seed, shoot *gardencorev1beta1.Shoot, candidates []*gardencorev1beta1.Seed) []*gardencorev1beta1.Seed {
+next:
+	for _, seed := range seedList {
+		if seed.DeletionTimestamp == nil && matchProvider(seed.Spec.Provider.Type, shoot.Spec.Provider.Type, providers) && !gardencorev1beta1helper.TaintsHave(seed.Spec.Taints, gardencorev1beta1.SeedTaintInvisible) && common.VerifySeedReadiness(seed) {
+			for _, c := range candidates {
+				if c == seed {
+					continue next
+				}
+			}
+			candidates = append(candidates, seed)
+		}
+	}
+	return candidates
+}
+
 func determineCandidatesOfSameProvider(seedList []*gardencorev1beta1.Seed, shoot *gardencorev1beta1.Shoot) []*gardencorev1beta1.Seed {
 	var candidates []*gardencorev1beta1.Seed
 	// Determine all candidate seed clusters matching the shoot's provider and region.
 	for _, seed := range seedList {
 		if seed.DeletionTimestamp == nil && seed.Spec.Provider.Type == shoot.Spec.Provider.Type && !gardencorev1beta1helper.TaintsHave(seed.Spec.Taints, gardencorev1beta1.SeedTaintInvisible) && common.VerifySeedReadiness(seed) {
+
 			candidates = append(candidates, seed)
 		}
 	}

@@ -290,7 +290,7 @@ message CloudProfileSpec {
   // An empty list means that all seeds of the same provider type are supported.
   // This is useful for environments that are of the same type (like openstack) but may have different "instances"/landscapes.
   // +optional
-  optional k8s.io.apimachinery.pkg.apis.meta.v1.LabelSelector seedSelector = 7;
+  optional SeedSelector seedSelector = 7;
 
   // Type is the name of the provider.
   optional string type = 8;
@@ -1477,6 +1477,17 @@ message SeedProvider {
 
   // Region is a name of a region.
   optional string region = 3;
+}
+
+// SeedSelector contains constraints for selecting seed to be usable for shoots using a profile
+message SeedSelector {
+  // LabelSelector is optional and can be used to select seeds by their label settings
+  // +optional
+  optional k8s.io.apimachinery.pkg.apis.meta.v1.LabelSelector labelSelector = 2;
+
+  // Providers is optional and can be used by restricting seeds by their provider type. '*' can be used to enable seeds regardless of their provider type.
+  // +optional
+  repeated string providers = 1;
 }
 
 // SeedSpec is the specification of a Seed.
