@@ -1483,11 +1483,11 @@ message SeedProvider {
 message SeedSelector {
   // LabelSelector is optional and can be used to select seeds by their label settings
   // +optional
-  optional k8s.io.apimachinery.pkg.apis.meta.v1.LabelSelector labelSelector = 2;
+  optional k8s.io.apimachinery.pkg.apis.meta.v1.LabelSelector labelSelector = 1;
 
   // Providers is optional and can be used by restricting seeds by their provider type. '*' can be used to enable seeds regardless of their provider type.
   // +optional
-  repeated string providers = 1;
+  repeated string providers = 2;
 }
 
 // SeedSpec is the specification of a Seed.
