@@ -691,7 +691,7 @@ var _ = Describe("Scheduler_Control", func() {
 			testCloudProfile := cloudProfile
 			testCloudProfile.Spec.Type = "openstack"
 
-			candidates, err := getCandidates(&testCloudProfile, &testShoot, []*gardencorev1beta1.Seed{&newSeedCCEE, &oldSeedOsEuDe200, &otherSeedCCEE}, schedulerConfiguration.Schedulers.Shoot.Strategy)
+			candidates, err := getCandidates(&testShoot, []*gardencorev1beta1.Seed{&newSeedCCEE, &oldSeedOsEuDe200, &otherSeedCCEE}, schedulerConfiguration.Schedulers.Shoot.Strategy)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(candidates)).To(Equal(2))
@@ -725,7 +725,7 @@ var _ = Describe("Scheduler_Control", func() {
 			testCloudProfile := cloudProfile
 			testCloudProfile.Spec.Type = "openstack"
 
-			candidates, err := getCandidates(&testCloudProfile, &testShoot, []*gardencorev1beta1.Seed{&newSeedCCEE, &oldSeedOsEuDe200, &otherSeedCCEE}, schedulerConfiguration.Schedulers.Shoot.Strategy)
+			candidates, err := getCandidates(&testShoot, []*gardencorev1beta1.Seed{&newSeedCCEE, &oldSeedOsEuDe200, &otherSeedCCEE}, schedulerConfiguration.Schedulers.Shoot.Strategy)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(candidates)).To(Equal(1))
