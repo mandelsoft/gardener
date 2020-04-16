@@ -71,7 +71,7 @@ replace (
 	k8s.io/apiserver => k8s.io/apiserver v0.16.8 // 1.16.8
 	k8s.io/client-go => k8s.io/client-go v0.16.8 // 1.16.8
 	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap v0.16.8 // 1.16.8
-	k8s.io/code-generator => k8s.io/code-generator v0.16.8 // 1.16.8
+	k8s.io/code-generator => github.com/mandelsoft/code-generator v0.16.9-beta.0.0.20200420103250-7284c6fa6cb0 // 1.16.8
 	k8s.io/component-base => k8s.io/component-base v0.16.8 // 1.16.8
 	k8s.io/helm => k8s.io/helm v2.13.1+incompatible
 	k8s.io/kube-aggregator => k8s.io/kube-aggregator v0.16.8 // 1.16.8

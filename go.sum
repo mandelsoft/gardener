@@ -366,6 +366,10 @@ github.com/mailru/easyjson v0.0.0-20190614124828-94de47d64c63 h1:nTT4s92Dgz2HlrB
 github.com/mailru/easyjson v0.0.0-20190614124828-94de47d64c63/go.mod h1:C1wdFJiN94OJF2b5HbByQZoLdCWB1Yqtg26g4irojpc=
 github.com/mailru/easyjson v0.0.0-20190626092158-b2ccc519800e h1:hB2xlXdHp/pmPZq0y3QnmWAArdw9PqbmotexnWx/FU8=
 github.com/mailru/easyjson v0.0.0-20190626092158-b2ccc519800e/go.mod h1:C1wdFJiN94OJF2b5HbByQZoLdCWB1Yqtg26g4irojpc=
+github.com/mandelsoft/code-generator v0.16.9-beta.0.0.20200416162224-861364cbf2a8 h1:wNHerzQuOh57bey3KCah8yX1hXWxTd/mvdqH5xYIdtg=
+github.com/mandelsoft/code-generator v0.16.9-beta.0.0.20200416162224-861364cbf2a8/go.mod h1:wFdrXdVi/UC+xIfLi+4l9elsTT/uEF61IfcN2wOLULQ=
+github.com/mandelsoft/code-generator v0.16.9-beta.0.0.20200420103250-7284c6fa6cb0 h1:pXk7Ol82jf20eOFXq33mKKl5/v1ovr7Bk44JSxApLiE=
+github.com/mandelsoft/code-generator v0.16.9-beta.0.0.20200420103250-7284c6fa6cb0/go.mod h1:wFdrXdVi/UC+xIfLi+4l9elsTT/uEF61IfcN2wOLULQ=
 github.com/mattn/go-colorable v0.1.2/go.mod h1:U0ppj6V5qS13XJ6of8GYAs25YV2eR4EVcfRqFIhoBtE=
 github.com/mattn/go-isatty v0.0.8/go.mod h1:Iq45c/XA43vh69/j3iqttzPXn0bhXyGjM0Hdxcsrc5s=
 github.com/mattn/go-isatty v0.0.11/go.mod h1:PhnuNfih5lzO57/f3n+odYbM4JtupLOxQOAqxQCu2WE=

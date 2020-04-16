@@ -1049,7 +1049,7 @@ k8s.io/client-go/util/workqueue
 # k8s.io/cluster-bootstrap v0.16.8 => k8s.io/cluster-bootstrap v0.16.8
 k8s.io/cluster-bootstrap/token/api
 k8s.io/cluster-bootstrap/token/util
-# k8s.io/code-generator v0.16.8 => k8s.io/code-generator v0.16.8
+# k8s.io/code-generator v0.16.8 => github.com/mandelsoft/code-generator v0.16.9-beta.0.0.20200420103250-7284c6fa6cb0
 k8s.io/code-generator
 k8s.io/code-generator/cmd/client-gen
 k8s.io/code-generator/cmd/client-gen/args
