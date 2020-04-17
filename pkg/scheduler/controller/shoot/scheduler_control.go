@@ -182,7 +182,7 @@ func determineSeed(shoot *gardencorev1beta1.Shoot, seedLister gardencorelisters.
 		return nil, err
 	}
 
-	filteredSeeds, err = filterSeedsMatchingSeedSelector(cloudProfile, seedList)
+	filteredSeeds, err = filterSeedsMatchingSeedSelector(cloudProfile, filteredSeeds)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +205,7 @@ func determineSeed(shoot *gardencorev1beta1.Shoot, seedLister gardencorelisters.
 	return getSeedWithLeastShootsDeployed(filteredCandidates, shootList)
 }
 
-func isUsableSeed(seed *gardencorev1beta1.Seed, ) bool {
+func isUsableSeed(seed *gardencorev1beta1.Seed) bool {
 	return seed.DeletionTimestamp == nil && !gardencorev1beta1helper.TaintsHave(seed.Spec.Taints, gardencorev1beta1.SeedTaintInvisible) && common.VerifySeedReadiness(seed)
 }
 
@@ -355,7 +355,7 @@ func determineCandidatesOfSameProvider(seedList []*gardencorev1beta1.Seed, shoot
 func determineCandidatesWithSameRegionStrategy(seedList []*gardencorev1beta1.Seed, shoot *gardencorev1beta1.Shoot) []*gardencorev1beta1.Seed {
 	var candidates []*gardencorev1beta1.Seed
 	for _, seed := range seedList {
-		if seed.Spec.Provider.Region == shoot.Spec.Region {
+		if seed.Spec.Provider.Type == shoot.Spec.Provider.Type && seed.Spec.Provider.Region == shoot.Spec.Region {
 			candidates = append(candidates, seed)
 		}
 	}
