@@ -1487,7 +1487,7 @@ message SeedSelector {
 
   // Providers is optional and can be used by restricting seeds by their provider type. '*' can be used to enable seeds regardless of their provider type.
   // +optional
-  repeated string providers = 2;
+  repeated string providerTypes = 2;
 }
 
 // SeedSpec is the specification of a Seed.

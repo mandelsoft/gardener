@@ -214,7 +214,7 @@ var _ = Describe("Scheduler_Control", func() {
 		It("should succeed because it cannot find a seed cluster 1) 'MinimalDistance' seed determination strategy 2) cross provider", func() {
 			cloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
 				LabelSelector: nil,
-				Providers:     []string{providerType},
+				ProviderTypes: []string{providerType},
 			}
 			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
 
@@ -231,7 +231,7 @@ var _ = Describe("Scheduler_Control", func() {
 		It("should succeed because it cannot find a seed cluster 1) 'MinimalDistance' seed determination strategy 2) any provider", func() {
 			cloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
 				LabelSelector: nil,
-				Providers:     []string{"*"},
+				ProviderTypes: []string{"*"},
 			}
 			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
 
@@ -253,7 +253,7 @@ var _ = Describe("Scheduler_Control", func() {
 					},
 					MatchExpressions: nil,
 				},
-				Providers: []string{"*"},
+				ProviderTypes: []string{"*"},
 			}
 			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
 
@@ -289,7 +289,7 @@ var _ = Describe("Scheduler_Control", func() {
 					},
 					MatchExpressions: nil,
 				},
-				Providers: []string{providerType},
+				ProviderTypes: []string{providerType},
 			}
 			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
 

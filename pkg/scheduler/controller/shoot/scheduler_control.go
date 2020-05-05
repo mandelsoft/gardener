@@ -19,8 +19,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/texttheater/golang-levenshtein/levenshtein"
-
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	gardencoreinformers "github.com/gardener/gardener/pkg/client/core/informers/externalversions"
@@ -32,6 +30,7 @@ import (
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	cidrvalidation "github.com/gardener/gardener/pkg/utils/validation/cidr"
 
+	"github.com/texttheater/golang-levenshtein/levenshtein"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -225,13 +224,12 @@ func filterUsableSeeds(seedList []*gardencorev1beta1.Seed) ([]*gardencorev1beta1
 }
 
 func filterSeedsMatchingSeedSelector(cloudProfile *gardencorev1beta1.CloudProfile, seedList []*gardencorev1beta1.Seed) ([]*gardencorev1beta1.Seed, error) {
-	selector := &metav1.LabelSelector{}
-	if cloudProfile.Spec.SeedSelector != nil && cloudProfile.Spec.SeedSelector.LabelSelector != nil {
-		selector = cloudProfile.Spec.SeedSelector.LabelSelector
+	if cloudProfile.Spec.SeedSelector == nil || cloudProfile.Spec.SeedSelector.LabelSelector == nil {
+		return seedList, nil
 	}
-	seedSelector, err := metav1.LabelSelectorAsSelector(selector)
+	seedSelector, err := metav1.LabelSelectorAsSelector(cloudProfile.Spec.SeedSelector.LabelSelector)
 	if err != nil {
-		return nil, fmt.Errorf("label selector conversion failed: %v for seedSelector: %v", *selector, err)
+		return nil, fmt.Errorf("label selector conversion failed: %v for seedSelector: %v", *cloudProfile.Spec.SeedSelector.LabelSelector, err)
 	}
 
 	var matchingSeeds []*gardencorev1beta1.Seed
@@ -250,7 +248,7 @@ func filterSeedsMatchingSeedSelector(cloudProfile *gardencorev1beta1.CloudProfil
 func filterSeedsMatchingProviders(cloudProfile *gardencorev1beta1.CloudProfile, shoot *gardencorev1beta1.Shoot, seedList []*gardencorev1beta1.Seed) ([]*gardencorev1beta1.Seed, error) {
 	var possibleProviders []string
 	if cloudProfile.Spec.SeedSelector != nil {
-		possibleProviders = cloudProfile.Spec.SeedSelector.Providers
+		possibleProviders = cloudProfile.Spec.SeedSelector.ProviderTypes
 	}
 
 	var matchingSeeds []*gardencorev1beta1.Seed
@@ -363,10 +361,6 @@ func determineCandidatesWithSameRegionStrategy(seedList []*gardencorev1beta1.See
 }
 
 func determineCandidatesWithMinimalDistanceStrategy(seeds []*gardencorev1beta1.Seed, shoot *gardencorev1beta1.Shoot) []*gardencorev1beta1.Seed {
-	if sameRegionCandidates := determineCandidatesWithSameRegionStrategy(seeds, shoot); sameRegionCandidates != nil {
-		return sameRegionCandidates
-	}
-
 	var (
 		minDistance = 1000
 		shootRegion = shoot.Spec.Region
@@ -375,7 +369,7 @@ func determineCandidatesWithMinimalDistanceStrategy(seeds []*gardencorev1beta1.S
 
 	for _, seed := range seeds {
 		seedRegion := seed.Spec.Provider.Region
-		dist, _ := distance(seedRegion, shootRegion)
+		dist := distance(seedRegion, shootRegion)
 
 		// append
 		if dist == minDistance {
@@ -393,7 +387,7 @@ func determineCandidatesWithMinimalDistanceStrategy(seeds []*gardencorev1beta1.S
 
 var orientations = []string{"north", "south", "east", "west", "central"}
 
-// distance extracts an orientation relative to a base from a region name
+// orientation extracts an orientation relative to a base from a region name
 func orientation(name string) (normalized string, orientation string) {
 	for _, o := range orientations {
 		if i := strings.Index(name, o); i >= 0 {
@@ -409,9 +403,13 @@ func orientation(name string) (normalized string, orientation string) {
 // some usual orientation keywords. It is based on the levenshtein distance
 // of the regions base names plus the difference based on the orientation.
 // regions with the same base but different orientations are basically nearer
-// to each other than two completely diffrent regions.
-func distance(seed, shoot string) (int, int) {
+// to each other than two completely unrelated regions.
+func distance(seed, shoot string) int {
+	d, _ := _distance(seed, shoot)
+	return d
+}
 
+func _distance(seed, shoot string) (int, int) {
 	seed_base, seed_orient := orientation(seed)
 	shoot_base, shoot_orient := orientation(shoot)
 	dist := levenshtein.DistanceForStrings([]rune(seed_base), []rune(shoot_base), levenshtein.DefaultOptionsWithSub)
