@@ -213,7 +213,7 @@ sed -i -e 's/Logging: true/Logging: false/g' dev/20-componentconfig-gardenlet.ya
 The Gardener exposes the API servers of Shoot clusters via Kubernetes services of type `LoadBalancer`.
 In order to establish stable endpoints (robust against changes of the load balancer address), it creates DNS records pointing to these load balancer addresses. They are used internally and by all cluster components to communicate.
 You need to have control over a domain (or subdomain) for which these records will be created.
-Please provide an *internal domain secret* (see [this](../../example/10-secret-internal-domain.yaml) for an example) which contains credentials with the proper privileges. Further information can be found [here](../concepts/configuration.md).
+Please provide an *internal domain secret* (see [this](../../example/10-secret-internal-domain.yaml) for an example) which contains credentials with the proper privileges. Further information can be found [here](../usage/configuration.md).
 
 ```bash
 kubectl apply -f example/10-secret-internal-domain-unmanaged.yaml
@@ -317,6 +317,6 @@ Moreover, it hid too many things and came with a bunch of limitations, making th
 
 ## Additional information
 
-In order to ensure that a specific Seed cluster will be chosen, add the `.spec.cloud.seed` field (see [here](../../example/90-deprecated-shoot-azure.yaml#L10) for an example Shoot manifest).
+To make sure that a specific Seed cluster will be chosen, specify the `.spec.seedName` field (see [here](../../example/90-shoot.yaml#L265-L266) for an example Shoot manifest).
 
 Please take a look at the [example manifests folder](../../example) to see which resource objects you need to install into your Garden cluster.

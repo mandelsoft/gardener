@@ -95,12 +95,12 @@ const (
 	// EtcdEncryptionSecretName is the name of the shoot-specific secret which contains
 	// that shoot's EncryptionConfiguration. The EncryptionConfiguration contains a key
 	// which the shoot's apiserver uses for encrypting selected etcd content.
-	// Should match charts/seed-controlplane/charts/kube-apiserver/templates/kube-apiserver.yaml
+	// Should match charts/seed-controlplane/charts/kube-apiserver/templates/deployment.yaml
 	EtcdEncryptionSecretName = "etcd-encryption-secret"
 
 	// EtcdEncryptionSecretFileName is the name of the file within the EncryptionConfiguration
 	// which is made available as volume mount to the shoot's apiserver.
-	// Should match charts/seed-controlplane/charts/kube-apiserver/templates/kube-apiserver.yaml
+	// Should match charts/seed-controlplane/charts/kube-apiserver/templates/deployment.yaml
 	EtcdEncryptionSecretFileName = "encryption-configuration.yaml"
 
 	// EtcdEncryptionChecksumAnnotationName is the name of the annotation with which to annotate
@@ -130,6 +130,9 @@ const (
 	// it must be confirmed with the `confirmation.gardener.cloud/deletion=true` annotation before a `DELETE` call
 	// is accepted.
 	GardenerDeletionProtected = "gardener.cloud/deletion-protected"
+
+	// ETCDEncryptionConfigDataName is the name of ShootState data entry holding the current key and encryption state used to encrypt shoot resources
+	ETCDEncryptionConfigDataName = "etcdEncryptionConfiguration"
 
 	// GardenRoleDefaultDomain is the value of the GardenRole key indicating type 'default-domain'.
 	GardenRoleDefaultDomain = "default-domain"
@@ -315,6 +318,9 @@ const (
 	// possible.
 	ShootOperationMaintain = "maintain"
 
+	// FailedShootNeedsRetryOperation is a constant for an annotation on a Shoot in a failed state indicating that a retry operation should be triggered during the next maintenance time window.
+	FailedShootNeedsRetryOperation = "maintenance.shoot.gardener.cloud/needs-retry-operation"
+
 	// ShootOperationRotateKubeconfigCredentials is a constant for an annotation on a Shoot indicating that the credentials contained in the
 	// kubeconfig that is handed out to the user shall be rotated.
 	ShootOperationRotateKubeconfigCredentials = "rotate-kubeconfig-credentials"
@@ -440,12 +446,6 @@ const (
 	// KubeStateMetricsImageName is the name of the KubeStateMetrics image.
 	KubeStateMetricsImageName = "kube-state-metrics"
 
-	// ETCDImageName is the name of the ETCD image.
-	ETCDImageName = "etcd"
-
-	// ETCDBackupRestoreImageName is the name of the ETCD backup-restore image.
-	ETCDBackupRestoreImageName = "etcd-backup-restore"
-
 	// EtcdDruidImageName is the name of Etcd Druid image
 	EtcdDruidImageName = "etcd-druid"
 
@@ -505,6 +505,21 @@ const (
 
 	// DependencyWatchdogImageName is the name of the dependency-watchdog image
 	DependencyWatchdogImageName = "dependency-watchdog"
+
+	// IstioProxyImageName is the image of Istio proxy image
+	IstioProxyImageName = "istio-proxy"
+
+	// IstioIstiodImageName is the image of Istio istiod image
+	IstioIstiodImageName = "istio-istiod"
+
+	// IstioNamespace is the istio-system namespace
+	IstioNamespace = "istio-system"
+
+	// IstioIngressGatewayNamespace is the istio-ingress namespace
+	IstioIngressGatewayNamespace = "istio-ingress"
+
+	// IstioIngressGatewayServiceName is the name of the Service used for SNI to the Shoot API Servers.
+	IstioIngressGatewayServiceName = "istio-ingressgateway"
 
 	// ServiceAccountSigningKeySecretDataKey is the data key of a signing key Kubernetes secret.
 	ServiceAccountSigningKeySecretDataKey = "signing-key"

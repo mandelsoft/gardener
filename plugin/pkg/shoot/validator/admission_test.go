@@ -25,12 +25,13 @@ import (
 	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/operation/common"
 	. "github.com/gardener/gardener/plugin/pkg/shoot/validator"
+	. "github.com/gardener/gardener/test/gomega"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -142,6 +143,7 @@ var _ = Describe("validator", func() {
 					Name: seedName,
 				},
 				Spec: core.SeedSpec{
+					Backup: &core.SeedBackup{},
 					Networks: core.SeedNetworks{
 						Pods:     seedPodsCIDR,
 						Services: seedServicesCIDR,
@@ -311,8 +313,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("update should fail because shoot is not in garden namespace and seed is protected", func() {
@@ -325,8 +326,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("create should pass because shoot is in garden namespace and seed is protected", func() {
@@ -390,7 +390,6 @@ var _ = Describe("validator", func() {
 
 				Expect(err).ToNot(HaveOccurred())
 			})
-
 		})
 
 		Context("name/project length checks", func() {
@@ -407,8 +406,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsBadRequest(err)).To(BeTrue())
+				Expect(err).To(BeBadRequestError())
 				Expect(err.Error()).To(ContainSubstring("consecutive hyphens"))
 			})
 
@@ -423,8 +421,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 				Expect(err.Error()).To(ContainSubstring("already marked for deletion"))
 			})
 
@@ -445,8 +442,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsBadRequest(err)).To(BeTrue())
+				Expect(err).To(BeBadRequestError())
 				Expect(err.Error()).To(ContainSubstring("name must not exceed"))
 			})
 
@@ -474,6 +470,47 @@ var _ = Describe("validator", func() {
 				err = admissionHandler.Admit(context.TODO(), attrs, nil)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).NotTo(ContainSubstring("name must not exceed"))
+			})
+		})
+
+		Context("shoot with generate name", func() {
+			BeforeEach(func() {
+				shoot.ObjectMeta = metav1.ObjectMeta{
+					GenerateName: "demo-",
+					Namespace:    namespaceName,
+				}
+			})
+
+			It("should admit Shoot resources", func() {
+				Expect(coreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(&project)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
+				attrs := admission.NewAttributesRecord(&shoot, nil, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Create, &metav1.CreateOptions{}, false, nil)
+
+				err := admissionHandler.Admit(context.TODO(), attrs, nil)
+
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("should reject Shoot resources with not fulfilling the length constraints", func() {
+				tooLongName := "too-long-namespace"
+				project.ObjectMeta = metav1.ObjectMeta{
+					Name: tooLongName,
+				}
+				shoot.ObjectMeta = metav1.ObjectMeta{
+					GenerateName: "too-long-name",
+					Namespace:    namespaceName,
+				}
+
+				Expect(coreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(&project)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
+				attrs := admission.NewAttributesRecord(&shoot, nil, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Create, &metav1.CreateOptions{}, false, nil)
+
+				err := admissionHandler.Admit(context.TODO(), attrs, nil)
+
+				Expect(err).To(BeBadRequestError())
+				Expect(err.Error()).To(ContainSubstring("name must not exceed"))
 			})
 		})
 
@@ -578,6 +615,69 @@ var _ = Describe("validator", func() {
 			)
 		})
 
+		Context("shoot maintenance checks", func() {
+			var (
+				oldShoot           *core.Shoot
+				confineEnabled     = true
+				specUpdate         = true
+				operationFaild     = &core.LastOperation{State: core.LastOperationStateFailed}
+				operationSucceeded = &core.LastOperation{State: core.LastOperationStateSucceeded}
+			)
+			BeforeEach(func() {
+				shoot = *shootBase.DeepCopy()
+				shoot.Spec.Maintenance = &core.Maintenance{}
+				oldShoot = shoot.DeepCopy()
+
+				Expect(coreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(&project)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
+			})
+
+			DescribeTable("confine spec roll-out checks",
+				func(specChange, oldConfine, confine bool, oldOperation, operation *core.LastOperation, matcher types.GomegaMatcher) {
+					oldShoot.Spec.Maintenance.ConfineSpecUpdateRollout = pointer.BoolPtr(oldConfine)
+					oldShoot.Status.LastOperation = oldOperation
+					shoot.Spec.Maintenance.ConfineSpecUpdateRollout = pointer.BoolPtr(confine)
+					shoot.Status.LastOperation = operation
+					if specChange {
+						shoot.Spec.Kubernetes.AllowPrivilegedContainers = pointer.BoolPtr(
+							oldShoot.Spec.Kubernetes.AllowPrivilegedContainers == nil ||
+								!(*oldShoot.Spec.Kubernetes.AllowPrivilegedContainers))
+					}
+
+					attrs := admission.NewAttributesRecord(&shoot, oldShoot, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Update, &metav1.UpdateOptions{}, false, nil)
+					Expect(admissionHandler.Admit(context.TODO(), attrs, nil)).To(Succeed())
+
+					Expect(shoot.Annotations).To(matcher)
+				},
+				Entry(
+					"should add annotation for failed shoot",
+					specUpdate, confineEnabled, confineEnabled, operationFaild, operationFaild,
+					HaveKeyWithValue(common.FailedShootNeedsRetryOperation, "true"),
+				),
+				Entry(
+					"should not add annotation for failed shoot because of missing spec change",
+					!specUpdate, confineEnabled, confineEnabled, operationFaild, operationFaild,
+					Not(HaveKey(common.FailedShootNeedsRetryOperation)),
+				),
+				Entry(
+					"should not add annotation for succeeded shoot",
+					specUpdate, confineEnabled, confineEnabled, operationFaild, operationSucceeded,
+					Not(HaveKey(common.FailedShootNeedsRetryOperation)),
+				),
+				Entry(
+					"should not add annotation for shoot w/o confine spec roll-out enabled",
+					specUpdate, confineEnabled, !confineEnabled, operationFaild, operationFaild,
+					Not(HaveKey(common.FailedShootNeedsRetryOperation)),
+				),
+				Entry(
+					"should not add annotation for shoot w/o last operation",
+					specUpdate, confineEnabled, confineEnabled, nil, nil,
+					Not(HaveKey(common.FailedShootNeedsRetryOperation)),
+				),
+			)
+		})
+
 		Context("checks for shoots referencing a deleted seed", func() {
 			var oldShoot *core.Shoot
 
@@ -659,8 +759,7 @@ var _ = Describe("validator", func() {
 
 			err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsBadRequest(err)).To(BeTrue())
+			Expect(err).To(BeBadRequestError())
 		})
 
 		It("should reject because the referenced seed was not found", func() {
@@ -670,8 +769,7 @@ var _ = Describe("validator", func() {
 
 			err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsBadRequest(err)).To(BeTrue())
+			Expect(err).To(BeBadRequestError())
 		})
 
 		It("should reject because the referenced project was not found", func() {
@@ -681,8 +779,7 @@ var _ = Describe("validator", func() {
 
 			err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsBadRequest(err)).To(BeTrue())
+			Expect(err).To(BeBadRequestError())
 		})
 
 		It("should reject because the cloud provider in shoot and profile differ", func() {
@@ -696,8 +793,7 @@ var _ = Describe("validator", func() {
 
 			err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsBadRequest(err)).To(BeTrue())
+			Expect(err).To(BeBadRequestError())
 		})
 
 		Context("tests for infrastructure update", func() {
@@ -771,8 +867,7 @@ var _ = Describe("validator", func() {
 				attrs := admission.NewAttributesRecord(&shoot, oldShoot, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Update, &metav1.UpdateOptions{}, false, nil)
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 				Expect(err.Error()).To(ContainSubstring("Unsupported value: \"europe-a\": supported values: \"asia-a\""))
 			})
 
@@ -783,8 +878,7 @@ var _ = Describe("validator", func() {
 				attrs := admission.NewAttributesRecord(&shoot, oldShoot, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Update, &metav1.UpdateOptions{}, false, nil)
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 				Expect(err.Error()).To(ContainSubstring("Unsupported value: \"europe-a\": supported values: \"zone-1\", \"zone-2\""))
 			})
 		})
@@ -833,8 +927,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject because the shoot pod and the seed pod networks intersect", func() {
@@ -847,8 +940,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject because the shoot service and the seed service networks intersect", func() {
@@ -861,8 +953,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject because the specified domain is already used by another shoot", func() {
@@ -878,8 +969,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject because the specified domain is a subdomain of a domain already used by another shoot", func() {
@@ -898,8 +988,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject because the specified domain is a subdomain of a domain already used by another shoot (case one)", func() {
@@ -918,8 +1007,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject because the specified domain is a subdomain of a domain already used by another shoot (case two)", func() {
@@ -937,8 +1025,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should allow because the specified domain is not a subdomain of a domain already used by another shoot", func() {
@@ -970,8 +1057,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should default a major.minor kubernetes version to latest patch version", func() {
@@ -1022,8 +1108,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should be able to explicitly pick preview versions", func() {
@@ -1054,8 +1139,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject due to an invalid machine image", func() {
@@ -1071,8 +1155,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject due to a machine image with expiration date in the past", func() {
@@ -1108,8 +1191,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should use latest machine image as old shoot does not specify one", func() {
@@ -1332,8 +1414,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject due to an invalid machine type", func() {
@@ -1352,8 +1433,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject due to an invalid volume type", func() {
@@ -1376,8 +1456,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject due to an invalid zone", func() {
@@ -1390,8 +1469,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should reject due to an invalid zone update", func() {
@@ -1406,8 +1484,7 @@ var _ = Describe("validator", func() {
 
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-				Expect(err).To(HaveOccurred())
-				Expect(apierrors.IsForbidden(err)).To(BeTrue())
+				Expect(err).To(BeForbiddenError())
 			})
 
 			It("should allow update when zone has removed from CloudProfile", func() {
@@ -1438,6 +1515,38 @@ var _ = Describe("validator", func() {
 				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
 				Expect(err).ToNot(HaveOccurred())
+			})
+		})
+
+		Context("backup configuration on seed", func() {
+			It("it should allow new Shoot creation when Seed doesn't have configuration for backup", func() {
+				oldShoot := shoot.DeepCopy()
+				oldShoot.Spec.SeedName = nil
+				seed.Spec.Backup = nil
+
+				Expect(coreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(&project)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
+				attrs := admission.NewAttributesRecord(&shoot, oldShoot, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Update, &metav1.UpdateOptions{}, false, nil)
+
+				err := admissionHandler.Admit(context.TODO(), attrs, nil)
+
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("it should fail to change Seed name, because Seed doesn't have configuration for backup", func() {
+				oldShoot := shoot.DeepCopy()
+				oldShoot.Spec.SeedName = pointer.StringPtr("oldSeedName")
+				seed.Spec.Backup = nil
+
+				Expect(coreInformerFactory.Core().InternalVersion().Projects().Informer().GetStore().Add(&project)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
+				Expect(coreInformerFactory.Core().InternalVersion().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
+				attrs := admission.NewAttributesRecord(&shoot, oldShoot, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Update, &metav1.UpdateOptions{}, false, nil)
+
+				err := admissionHandler.Admit(context.TODO(), attrs, nil)
+
+				Expect(err).To(HaveOccurred())
 			})
 		})
 	})

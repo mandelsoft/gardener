@@ -18,7 +18,8 @@ import (
 	"context"
 
 	"github.com/gardener/gardener/pkg/apis/core"
-	"github.com/gardener/gardener/pkg/apis/core/validation"
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	"github.com/gardener/gardener/pkg/operation/common"
 	shootregistry "github.com/gardener/gardener/pkg/registry/core/shoot"
 
 	. "github.com/onsi/ginkgo"
@@ -26,70 +27,358 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/utils/pointer"
 )
 
 var _ = Describe("Strategy", func() {
 	Context("PrepareForUpdate", func() {
-		Context("pod pids limit", func() {
-			It("should enforce the minimum limit value", func() {
-				var tooSmallValue int64 = 10
+		Context("generation increment", func() {
+			It("should not increase if new=old", func() {
+				oldShoot := &core.Shoot{}
+				newShoot := oldShoot.DeepCopy()
 
-				shoot := newShoot("foo")
-				shoot.Spec.Kubernetes.Kubelet = &core.KubeletConfig{
-					PodPIDsLimit: &tooSmallValue,
-				}
-				shoot.Spec.Provider.Workers = []core.Worker{
-					{
-						Kubernetes: &core.WorkerKubernetes{
-							Kubelet: &core.KubeletConfig{
-								PodPIDsLimit: &tooSmallValue,
-							},
-						},
-					},
-				}
-
-				oldShoot := newShoot("foo")
-				oldShoot.Spec.Kubernetes.Kubelet = shoot.Spec.Kubernetes.Kubelet.DeepCopy()
-				oldShoot.Spec.Provider.Workers = []core.Worker{*shoot.Spec.Provider.Workers[0].DeepCopy()}
-
-				shootregistry.Strategy.PrepareForUpdate(context.TODO(), shoot, oldShoot)
-
-				Expect(*shoot.Spec.Kubernetes.Kubelet.PodPIDsLimit).To(Equal(validation.PodPIDsLimitMinimum))
-				Expect(*oldShoot.Spec.Kubernetes.Kubelet.PodPIDsLimit).To(Equal(validation.PodPIDsLimitMinimum))
-				Expect(*shoot.Spec.Provider.Workers[0].Kubernetes.Kubelet.PodPIDsLimit).To(Equal(validation.PodPIDsLimitMinimum))
-				Expect(*oldShoot.Spec.Provider.Workers[0].Kubernetes.Kubelet.PodPIDsLimit).To(Equal(validation.PodPIDsLimitMinimum))
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
 			})
 
-			It("should not touch values that are above the minimum", func() {
-				var (
-					tooSmallValue   int64 = 10
-					highEnoughValue int64 = 105
-				)
+			It("should not increase if spec remains the same", func() {
+				oldShoot := &core.Shoot{}
+				newShoot := oldShoot.DeepCopy()
+				newShoot.Labels = map[string]string{"foo": "bar"}
+				newShoot.Spec = oldShoot.Spec
 
-				shoot := newShoot("foo")
-				shoot.Spec.Kubernetes.Kubelet = &core.KubeletConfig{
-					PodPIDsLimit: &tooSmallValue,
-				}
-				shoot.Spec.Provider.Workers = []core.Worker{
-					{
-						Kubernetes: &core.WorkerKubernetes{
-							Kubelet: &core.KubeletConfig{
-								PodPIDsLimit: &highEnoughValue,
-							},
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+			})
+
+			It("should increase for spec changes only if confineSpecUpdateRollout is false", func() {
+				oldShoot := &core.Shoot{}
+				newShoot := &core.Shoot{
+					Spec: core.ShootSpec{
+						Region: "foo",
+						Maintenance: &core.Maintenance{
+							ConfineSpecUpdateRollout: pointer.BoolPtr(false),
 						},
 					},
 				}
 
-				oldShoot := newShoot("foo")
-				oldShoot.Spec.Kubernetes.Kubelet = shoot.Spec.Kubernetes.Kubelet.DeepCopy()
-				oldShoot.Spec.Provider.Workers = []core.Worker{*shoot.Spec.Provider.Workers[0].DeepCopy()}
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+			})
 
-				shootregistry.Strategy.PrepareForUpdate(context.TODO(), shoot, oldShoot)
+			It("should not increase for spec changes if confineSpecUpdateRollout is true", func() {
+				oldShoot := &core.Shoot{
+					Spec: core.ShootSpec{
+						Maintenance: &core.Maintenance{
+							ConfineSpecUpdateRollout: pointer.BoolPtr(true),
+						},
+					},
+				}
+				newShoot := &core.Shoot{
+					Spec: core.ShootSpec{
+						Region: "foo",
+						Maintenance: &core.Maintenance{
+							ConfineSpecUpdateRollout: pointer.BoolPtr(true),
+						},
+					},
+				}
 
-				Expect(*shoot.Spec.Kubernetes.Kubelet.PodPIDsLimit).To(Equal(validation.PodPIDsLimitMinimum))
-				Expect(*oldShoot.Spec.Kubernetes.Kubelet.PodPIDsLimit).To(Equal(validation.PodPIDsLimitMinimum))
-				Expect(*shoot.Spec.Provider.Workers[0].Kubernetes.Kubelet.PodPIDsLimit).To(Equal(highEnoughValue))
-				Expect(*oldShoot.Spec.Provider.Workers[0].Kubernetes.Kubelet.PodPIDsLimit).To(Equal(highEnoughValue))
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+			})
+
+			Context("exceptional case: spec.hibernation.enabled changes even if confineSpecUpdateRollout is true", func() {
+				var (
+					oldShoot *core.Shoot
+					newShoot *core.Shoot
+				)
+
+				BeforeEach(func() {
+					oldShoot = &core.Shoot{
+						Spec: core.ShootSpec{
+							Maintenance: &core.Maintenance{
+								ConfineSpecUpdateRollout: pointer.BoolPtr(true),
+							},
+						},
+					}
+					newShoot = oldShoot.DeepCopy()
+				})
+
+				It("old hibernation=nil, new hibernation=nil", func() {
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+				})
+
+				It("old hibernation=nil, new hibernation.enabled=false", func() {
+					newShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(false),
+					}
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+				})
+
+				It("old hibernation.enabled=nil, new hibernation.enabled=false", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{}
+					newShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(false),
+					}
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+				})
+
+				It("old hibernation=nil, new hibernation.enabled=true", func() {
+					newShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(true),
+					}
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+				})
+
+				It("old hibernation.enabled=nil, new hibernation.enabled=true", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{}
+					newShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(true),
+					}
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+				})
+
+				It("old hibernation.enabled=true, new hibernation.enabled=false", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(true),
+					}
+					newShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(false),
+					}
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+				})
+
+				It("old hibernation.enabled=true, new hibernation.enabled=nil", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(true),
+					}
+					newShoot.Spec.Hibernation = &core.Hibernation{}
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+				})
+
+				It("old hibernation.enabled=true, new hibernation=nil", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(true),
+					}
+					newShoot.Spec.Hibernation = nil
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+				})
+
+				It("old hibernation.enabled=true, new hibernation.enabled=nil", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(true),
+					}
+					newShoot.Spec.Hibernation = &core.Hibernation{}
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+				})
+
+				It("old hibernation.enabled=false, new hibernation.enabled=true", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(false),
+					}
+					newShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(true),
+					}
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+				})
+
+				It("old hibernation.enabled=false, new hibernation.enabled=nil", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(false),
+					}
+					newShoot.Spec.Hibernation = &core.Hibernation{}
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+				})
+
+				It("old hibernation.enabled=false, new hibernation=nil", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{
+						Enabled: pointer.BoolPtr(false),
+					}
+					newShoot.Spec.Hibernation = nil
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+				})
+
+				It("old hibernation.enabled=nil, new hibernation=nil", func() {
+					oldShoot.Spec.Hibernation = &core.Hibernation{}
+					newShoot.Spec.Hibernation = nil
+
+					shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+					Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+				})
+			})
+
+			It("should increase for confineSpecUpdateRollout changes from true -> false", func() {
+				oldShoot := &core.Shoot{
+					Spec: core.ShootSpec{
+						Maintenance: &core.Maintenance{
+							ConfineSpecUpdateRollout: pointer.BoolPtr(true),
+						},
+					},
+				}
+				newShoot := &core.Shoot{
+					Spec: core.ShootSpec{
+						Maintenance: &core.Maintenance{
+							ConfineSpecUpdateRollout: pointer.BoolPtr(false),
+						},
+					},
+				}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+			})
+
+			It("should not increase for confineSpecUpdateRollout changes from false -> true", func() {
+				oldShoot := &core.Shoot{
+					Spec: core.ShootSpec{
+						Maintenance: &core.Maintenance{
+							ConfineSpecUpdateRollout: pointer.BoolPtr(false),
+						},
+					},
+				}
+				newShoot := &core.Shoot{
+					Spec: core.ShootSpec{
+						Maintenance: &core.Maintenance{
+							ConfineSpecUpdateRollout: pointer.BoolPtr(true),
+						},
+					},
+				}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+			})
+
+			It("should increase when the deletion timestamp gets set", func() {
+				deletionTimestamp := metav1.Now()
+
+				oldShoot := &core.Shoot{}
+				newShoot := &core.Shoot{
+					ObjectMeta: metav1.ObjectMeta{
+						DeletionTimestamp: &deletionTimestamp,
+					},
+				}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+			})
+
+			It("should increase when the last operation is failed and the retry annotation gets set", func() {
+				oldShoot := &core.Shoot{
+					Status: core.ShootStatus{
+						LastOperation: &core.LastOperation{
+							State: core.LastOperationStateFailed,
+						},
+					},
+				}
+				newShoot := oldShoot.DeepCopy()
+				newShoot.Annotations = map[string]string{v1beta1constants.GardenerOperation: common.ShootOperationRetry}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+			})
+
+			It("should not increase when the last operation is not failed and the retry annotation gets set", func() {
+				oldShoot := &core.Shoot{
+					Status: core.ShootStatus{
+						LastOperation: &core.LastOperation{
+							State: core.LastOperationStateSucceeded,
+						},
+					},
+				}
+				newShoot := oldShoot.DeepCopy()
+				newShoot.Annotations = map[string]string{v1beta1constants.GardenerOperation: common.ShootOperationRetry}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+			})
+
+			It("should increase when the reconcile annotation gets set but no last operation", func() {
+				oldShoot := &core.Shoot{}
+				newShoot := oldShoot.DeepCopy()
+				newShoot.Annotations = map[string]string{v1beta1constants.GardenerOperation: common.ShootOperationReconcile}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation))
+			})
+
+			It("should increase when the reconcile annotation gets set with a last operation", func() {
+				oldShoot := &core.Shoot{
+					Status: core.ShootStatus{
+						LastOperation: &core.LastOperation{},
+					},
+				}
+				newShoot := oldShoot.DeepCopy()
+				newShoot.Annotations = map[string]string{v1beta1constants.GardenerOperation: common.ShootOperationReconcile}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+			})
+
+			It("should increase when the rotate-kubeconfig-credentials annotation gets set with a last operation", func() {
+				oldShoot := &core.Shoot{
+					Status: core.ShootStatus{
+						LastOperation: &core.LastOperation{},
+					},
+				}
+				newShoot := oldShoot.DeepCopy()
+				newShoot.Annotations = map[string]string{v1beta1constants.GardenerOperation: common.ShootOperationRotateKubeconfigCredentials}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+			})
+
+			// TODO: Just a temporary solution. Remove this in a future version once Kyma is moved out again.
+			It("should increase when the kyma-addon annotation gets changed", func() {
+				oldShoot := &core.Shoot{}
+				newShoot := oldShoot.DeepCopy()
+				newShoot.Annotations = map[string]string{common.ShootExperimentalAddonKyma: "true"}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Generation).To(Equal(oldShoot.Generation + 1))
+			})
+		})
+
+		Context("admission plugin migration", func() {
+			It("should remove conflicting admission plugins", func() {
+				oldShoot := &core.Shoot{}
+				newShoot := oldShoot.DeepCopy()
+				newShoot.Spec.Kubernetes.KubeAPIServer = &core.KubeAPIServerConfig{
+					AdmissionPlugins: []core.AdmissionPlugin{
+						{Name: "foo"},
+						{Name: "bar"},
+						{Name: "SecurityContextDeny"},
+						{Name: "baz"},
+					},
+				}
+
+				shootregistry.Strategy.PrepareForUpdate(context.TODO(), newShoot, oldShoot)
+				Expect(newShoot.Spec.Kubernetes.KubeAPIServer.AdmissionPlugins).To(ConsistOf(
+					Equal(core.AdmissionPlugin{Name: "foo"}),
+					Equal(core.AdmissionPlugin{Name: "bar"}),
+					Equal(core.AdmissionPlugin{Name: "baz"}),
+				))
 			})
 		})
 	})

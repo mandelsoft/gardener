@@ -16,32 +16,36 @@ package botanist
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"time"
 
+	"github.com/gardener/gardener/pkg/api/extensions"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
-	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
-	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/operation/common"
 	"github.com/gardener/gardener/pkg/operation/shoot"
 	"github.com/gardener/gardener/pkg/utils/flow"
-	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
-	"github.com/gardener/gardener/pkg/utils/kubernetes/health"
 	"github.com/gardener/gardener/pkg/utils/retry"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // DeployExtensionResources creates the `Extension` extension resource in the shoot namespace in the seed
 // cluster. Gardener waits until an external controller did reconcile the cluster successfully.
 func (b *Botanist) DeployExtensionResources(ctx context.Context) error {
+	var (
+		restorePhase      = b.isRestorePhase()
+		gardenerOperation = v1beta1constants.GardenerOperationReconcile
+	)
+
+	if restorePhase {
+		gardenerOperation = v1beta1constants.GardenerOperationWaitForState
+	}
+
 	fns := make([]flow.TaskFn, 0, len(b.Shoot.Extensions))
 	for _, extension := range b.Shoot.Extensions {
 		var (
@@ -57,12 +61,17 @@ func (b *Botanist) DeployExtensionResources(ctx context.Context) error {
 
 		fns = append(fns, func(ctx context.Context) error {
 			_, err := controllerutil.CreateOrUpdate(ctx, b.K8sSeedClient.Client(), &toApply, func() error {
-				metav1.SetMetaDataAnnotation(&toApply.ObjectMeta, v1beta1constants.GardenerOperation, v1beta1constants.GardenerOperationReconcile)
-
+				metav1.SetMetaDataAnnotation(&toApply.ObjectMeta, v1beta1constants.GardenerOperation, gardenerOperation)
+				metav1.SetMetaDataAnnotation(&toApply.ObjectMeta, v1beta1constants.GardenerTimestamp, time.Now().UTC().String())
 				toApply.Spec.Type = extensionType
 				toApply.Spec.ProviderConfig = providerConfig
 				return nil
 			})
+
+			if restorePhase {
+				return b.restoreExtensionObject(ctx, b.K8sSeedClient.Client(), &toApply, &toApply.ObjectMeta, &toApply.Status.DefaultStatus, extensionsv1alpha1.ExtensionResource, toApply.Name, toApply.GetExtensionSpec().GetExtensionPurpose())
+			}
+
 			return err
 		})
 	}
@@ -76,27 +85,20 @@ func (b *Botanist) DeployExtensionResources(ctx context.Context) error {
 func (b *Botanist) WaitUntilExtensionResourcesReady(ctx context.Context) error {
 	fns := make([]flow.TaskFn, 0, len(b.Shoot.Extensions))
 	for _, extension := range b.Shoot.Extensions {
-		var (
-			name      = extension.Name
-			namespace = extension.Namespace
-		)
 		fns = append(fns, func(ctx context.Context) error {
-			if err := retry.UntilTimeout(ctx, DefaultInterval, shoot.ExtensionDefaultTimeout, func(ctx context.Context) (bool, error) {
-				req := &extensionsv1alpha1.Extension{}
-				if err := b.K8sSeedClient.Client().Get(ctx, kutil.Key(namespace, name), req); err != nil {
-					return retry.SevereError(err)
-				}
-
-				if err := health.CheckExtensionObject(req); err != nil {
-					b.Logger.WithError(err).Errorf("Extension %s/%s did not get ready yet", namespace, name)
-					return retry.MinorError(err)
-				}
-
-				return retry.Ok()
-			}); err != nil {
-				return gardencorev1beta1helper.DetermineError(err, fmt.Sprintf("failed waiting for extension %s to be ready: %v", name, err))
-			}
-			return nil
+			return common.WaitUntilExtensionCRReady(
+				ctx,
+				b.K8sSeedClient.Client(),
+				b.Logger,
+				func() runtime.Object { return &extensionsv1alpha1.Extension{} },
+				"Extension",
+				extension.Namespace,
+				extension.Name,
+				DefaultInterval,
+				DefaultSevereThreshold,
+				extension.Timeout,
+				nil,
+			)
 		})
 	}
 
@@ -118,81 +120,60 @@ func (b *Botanist) DeleteAllExtensionResources(ctx context.Context) error {
 }
 
 func (b *Botanist) deleteExtensionResources(ctx context.Context, wantedExtensionTypes sets.String) error {
-	deployedExtensions := &extensionsv1alpha1.ExtensionList{}
-	if err := b.K8sSeedClient.Client().List(ctx, deployedExtensions, client.InNamespace(b.Shoot.SeedNamespace)); err != nil {
-		return err
-	}
-
-	fns := make([]flow.TaskFn, 0, meta.LenList(deployedExtensions))
-	for _, deployedExtension := range deployedExtensions.Items {
-		if !wantedExtensionTypes.Has(deployedExtension.Spec.Type) {
-			toDelete := &extensionsv1alpha1.Extension{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      deployedExtension.Name,
-					Namespace: deployedExtension.Namespace,
-				},
-			}
-
-			fns = append(fns, func(ctx context.Context) error {
-				if err := common.ConfirmDeletion(ctx, b.K8sSeedClient.Client(), toDelete); err != nil {
-					return err
-				}
-
-				return client.IgnoreNotFound(b.K8sSeedClient.Client().Delete(ctx, toDelete, kubernetes.DefaultDeleteOptions...))
-			})
-		}
-	}
-
-	return flow.Parallel(fns...)(ctx)
+	return common.DeleteExtensionCRs(
+		ctx,
+		b.K8sSeedClient.Client(),
+		&extensionsv1alpha1.ExtensionList{},
+		func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Extension{} },
+		b.Shoot.SeedNamespace,
+		func(obj extensionsv1alpha1.Object) bool {
+			return !wantedExtensionTypes.Has(obj.GetExtensionSpec().GetExtensionType())
+		},
+	)
 }
 
 // WaitUntilExtensionResourcesDeleted waits until all extension resources are gone or the context is cancelled.
 func (b *Botanist) WaitUntilExtensionResourcesDeleted(ctx context.Context) error {
-	var (
-		lastError  *gardencorev1beta1.LastError
-		extensions = &extensionsv1alpha1.ExtensionList{}
+	return common.WaitUntilExtensionCRsDeleted(
+		ctx,
+		b.K8sSeedClient.Client(),
+		b.Logger,
+		&extensionsv1alpha1.ExtensionList{},
+		func() extensionsv1alpha1.Object { return &extensionsv1alpha1.Extension{} },
+		"Extension",
+		b.Shoot.SeedNamespace,
+		DefaultInterval,
+		shoot.ExtensionDefaultTimeout,
+		nil,
 	)
+}
 
-	if err := b.K8sSeedClient.Client().List(ctx, extensions, client.InNamespace(b.Shoot.SeedNamespace)); err != nil {
-		return err
-	}
+// WaitForExtensionsOperationMigrateToSucceed waits until extension CRs has lastOperation Migrate Succeeded
+func (b *Botanist) WaitForExtensionsOperationMigrateToSucceed(ctx context.Context) error {
+	fns, err := b.applyFuncToAllExtensionCRs(ctx, func(obj runtime.Object) error {
+		return retry.UntilTimeout(ctx, 5*time.Second, 300*time.Second, func(ctx context.Context) (done bool, err error) {
+			acc, err := extensions.Accessor(obj)
+			if err != nil {
+				return retry.SevereError(err)
+			}
 
-	fns := make([]flow.TaskFn, 0, len(extensions.Items))
-	for _, extension := range extensions.Items {
-		if extension.GetDeletionTimestamp() == nil {
-			continue
-		}
-
-		var (
-			name      = extension.Name
-			namespace = extension.Namespace
-			status    = extension.Status
-		)
-
-		fns = append(fns, func(ctx context.Context) error {
-			if err := retry.UntilTimeout(ctx, DefaultInterval, shoot.ExtensionDefaultTimeout, func(ctx context.Context) (bool, error) {
-				if err := b.K8sSeedClient.Client().Get(ctx, kutil.Key(namespace, name), &extensionsv1alpha1.Extension{}); err != nil {
-					if apierrors.IsNotFound(err) {
+			if extensionObjStatus := acc.GetExtensionStatus(); extensionObjStatus != nil {
+				if lastOperation := extensionObjStatus.GetLastOperation(); lastOperation != nil {
+					if lastOperation.Type == gardencorev1beta1.LastOperationTypeMigrate && lastOperation.State == gardencorev1beta1.LastOperationStateSucceeded {
 						return retry.Ok()
 					}
-					return retry.SevereError(err)
 				}
-
-				if lastErr := status.LastError; lastErr != nil {
-					b.Logger.Errorf("Extension %s did not get deleted yet, lastError is: %s", name, lastErr.Description)
-					lastError = lastErr
-				}
-
-				return retry.MinorError(gardencorev1beta1helper.WrapWithLastError(fmt.Errorf("extension %s is still present", name), lastError))
-			}); err != nil {
-				message := "Failed waiting for extension delete"
-				if lastError != nil {
-					return gardencorev1beta1helper.DetermineError(errors.New(lastError.Description), fmt.Sprintf("%s: %s", message, lastError.Description))
-				}
-				return gardencorev1beta1helper.DetermineError(err, fmt.Sprintf("%s: %s", message, err.Error()))
 			}
-			return nil
+
+			var exetnsionType string
+			if extensionSpec := acc.GetExtensionSpec(); extensionSpec != nil {
+				exetnsionType = extensionSpec.GetExtensionType()
+			}
+			return retry.MinorError(fmt.Errorf("extension CR %s with type %s lastOperation was not Migrate=Succeeded", acc.GetName(), exetnsionType))
 		})
+	})
+	if err != nil {
+		return err
 	}
 
 	return flow.Parallel(fns...)(ctx)

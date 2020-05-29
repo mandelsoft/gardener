@@ -20,6 +20,7 @@ import (
 
 	"github.com/gardener/gardener/pkg/api"
 	"github.com/gardener/gardener/pkg/apis/core"
+	"github.com/gardener/gardener/pkg/apis/core/helper"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	"github.com/gardener/gardener/pkg/apis/core/validation"
 	"github.com/gardener/gardener/pkg/operation/common"
@@ -66,37 +67,20 @@ func (shootStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.Obje
 		newShoot.Generation = oldShoot.Generation + 1
 	}
 
-	// We have introduced minimum values for the pod pids limits and have to ensure that
-	// the value is taken.
+	// Remove the conflicting "SecurityContextDeny" admission plugin if present
 	// TODO: This can be removed in a future release.
-	updateKubeletConfig(newShoot.Spec.Kubernetes.Kubelet)
-	for i, worker := range newShoot.Spec.Provider.Workers {
-		if worker.Kubernetes != nil {
-			updateKubeletConfig(newShoot.Spec.Provider.Workers[i].Kubernetes.Kubelet)
+	if newShoot.Spec.Kubernetes.KubeAPIServer != nil {
+		for i := len(newShoot.Spec.Kubernetes.KubeAPIServer.AdmissionPlugins) - 1; i >= 0; i-- {
+			if newShoot.Spec.Kubernetes.KubeAPIServer.AdmissionPlugins[i].Name == "SecurityContextDeny" {
+				newShoot.Spec.Kubernetes.KubeAPIServer.AdmissionPlugins = append(newShoot.Spec.Kubernetes.KubeAPIServer.AdmissionPlugins[:i], newShoot.Spec.Kubernetes.KubeAPIServer.AdmissionPlugins[i+1:]...)
+			}
 		}
-	}
-	updateKubeletConfig(oldShoot.Spec.Kubernetes.Kubelet)
-	for i, worker := range oldShoot.Spec.Provider.Workers {
-		if worker.Kubernetes != nil {
-			updateKubeletConfig(oldShoot.Spec.Provider.Workers[i].Kubernetes.Kubelet)
-		}
-	}
-}
-
-func updateKubeletConfig(kubeletConfig *core.KubeletConfig) {
-	if kubeletConfig == nil {
-		return
-	}
-
-	if kubeletConfig.PodPIDsLimit != nil && *kubeletConfig.PodPIDsLimit < validation.PodPIDsLimitMinimum {
-		v := validation.PodPIDsLimitMinimum
-		kubeletConfig.PodPIDsLimit = &v
 	}
 }
 
 func mustIncreaseGeneration(oldShoot, newShoot *core.Shoot) bool {
 	// The Shoot specification changes.
-	if !apiequality.Semantic.DeepEqual(oldShoot.Spec, newShoot.Spec) {
+	if mustIncreaseGenerationForSpecChanges(oldShoot, newShoot) {
 		return true
 	}
 
@@ -112,6 +96,10 @@ func mustIncreaseGeneration(oldShoot, newShoot *core.Shoot) bool {
 		case core.LastOperationStateFailed:
 			// The shoot state is failed and the retry annotation is set.
 			if val, ok := common.GetShootOperationAnnotation(newShoot.Annotations); ok && val == common.ShootOperationRetry {
+				mustIncrease = true
+			}
+		case core.LastOperationStatePending:
+			if newShoot.Status.LastOperation.Type == core.LastOperationTypeRestore {
 				mustIncrease = true
 			}
 		default:
@@ -141,6 +129,14 @@ func mustIncreaseGeneration(oldShoot, newShoot *core.Shoot) bool {
 	}
 
 	return false
+}
+
+func mustIncreaseGenerationForSpecChanges(oldShoot, newShoot *core.Shoot) bool {
+	if newShoot.Spec.Maintenance != nil && newShoot.Spec.Maintenance.ConfineSpecUpdateRollout != nil && *newShoot.Spec.Maintenance.ConfineSpecUpdateRollout {
+		return helper.HibernationIsEnabled(oldShoot) != helper.HibernationIsEnabled(newShoot)
+	}
+
+	return !apiequality.Semantic.DeepEqual(oldShoot.Spec, newShoot.Spec)
 }
 
 func (shootStrategy) Validate(ctx context.Context, obj runtime.Object) field.ErrorList {

@@ -15,14 +15,14 @@ Check out these repositories for implementations of the Gardener Extension contr
 
 ### Infrastructure Provider
 
-- [Alicloud](https://github.com/gardenergardener-extension-provider-alicloud)
-- [AWS](https://github.com/gardenergardener-extension-provider-aws)
-- [Azure](https://github.com/gardenergardener-extension-provider-azure)
-- [GCP](https://github.com/gardenergardener-extension-provider-gcp)
-- [MetalStack](https://github.com/metal-podgardener-extension-provider-metal)
-- [OpenStack](https://github.com/gardenergardener-extension-provider-openstack)
-- [Packet](https://github.com/gardenergardener-extension-provider-packet)
-- [vSphere](https://github.com/gardenergardener-extension-provider-vsphere)
+- [Alicloud](https://github.com/gardener/gardener-extension-provider-alicloud)
+- [AWS](https://github.com/gardener/gardener-extension-provider-aws)
+- [Azure](https://github.com/gardener/gardener-extension-provider-azure)
+- [GCP](https://github.com/gardener/gardener-extension-provider-gcp)
+- [MetalStack](https://github.com/metal-stack/gardener-extension-provider-metal)
+- [OpenStack](https://github.com/gardener/gardener-extension-provider-openstack)
+- [Packet](https://github.com/gardener/gardener-extension-provider-packet)
+- [vSphere](https://github.com/gardener/gardener-extension-provider-vsphere)
 
 ### DNS Provider
 
@@ -35,7 +35,7 @@ Check out these repositories for implementations of the Gardener Extension contr
 - [CoreOS/FlatCar](https://github.com/gardener/gardener-extension-os-coreos)
 - [CoreOS/FlatCar (Alicloud)](https://github.com/gardener/gardener-extension-os-coreos-alicloud)
 - [GardenLinux](https://github.com/gardener/gardener-extension-os-gardenlinux)
-- [Debian/Ubuntu (MetalStack)](https://github.com/metal-pod/os-metal-extension)
+- [Debian/Ubuntu (MetalStack)](https://github.com/metal-stack/os-metal-extension)
 - [Ubuntu](https://github.com/gardener/gardener-extension-os-ubuntu)
 - [Ubuntu (Alicloud)](https://github.com/gardener/gardener-extension-os-ubuntu-alicloud)
 - [SuSE JeOS](https://github.com/gardener/gardener-extension-os-suse-jeos)

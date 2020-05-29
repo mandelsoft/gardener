@@ -53,12 +53,6 @@ format-data-device
 docker-preload "{{ $name }}" "{{ $image }}"
 {{ end }}
 
-{{- if semverCompare "< 1.17" .kubernetesVersion }}
-docker run --rm -v /opt/bin:/opt/bin:rw {{ required "images.hyperkube is required" .images.hyperkube }} /bin/sh -c "cp /usr/local/bin/kubectl /opt/bin"
-{{- else }}
-docker run --rm -v /opt/bin:/opt/bin:rw --entrypoint /bin/sh {{ required "images.hyperkube is required" .images.hyperkube }} -c "cp /usr/local/bin/kubectl /opt/bin"
-{{- end }}
-
 cat << 'EOF' | base64 -d > "$PATH_CLOUDCONFIG"
 {{ .worker.cloudConfig | b64enc }}
 EOF
@@ -67,7 +61,7 @@ if [ ! -f "$PATH_CLOUDCONFIG_OLD" ]; then
   touch "$PATH_CLOUDCONFIG_OLD"
 fi
 
-if [[ ! -f "$DIR_KUBELET/kubeconfig-real" ]]; then
+if [[ ! -f "$DIR_KUBELET/kubeconfig-real" ]] || [[ ! -f "$DIR_KUBELET/pki/kubelet-client-current.pem" ]]; then
   cat <<EOF > "$DIR_KUBELET/kubeconfig-bootstrap"
 ---
 apiVersion: v1

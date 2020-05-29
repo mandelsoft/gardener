@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -36,11 +37,16 @@ import (
 	configvalidation "github.com/gardener/gardener/pkg/gardenlet/apis/config/validation"
 	"github.com/gardener/gardener/pkg/gardenlet/bootstrap"
 	"github.com/gardener/gardener/pkg/gardenlet/controller"
+	seedcontroller "github.com/gardener/gardener/pkg/gardenlet/controller/seed"
 	"github.com/gardener/gardener/pkg/gardenlet/features"
+	"github.com/gardener/gardener/pkg/healthz"
 	"github.com/gardener/gardener/pkg/logger"
+	"github.com/gardener/gardener/pkg/server"
 	gardenerutils "github.com/gardener/gardener/pkg/utils"
+	"github.com/gardener/gardener/pkg/utils/secrets"
 	"github.com/gardener/gardener/pkg/version"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -222,6 +228,7 @@ type Gardenlet struct {
 	Logger                 *logrus.Logger
 	Recorder               record.EventRecorder
 	LeaderElection         *leaderelection.LeaderElectionConfig
+	HealthManager          healthz.Manager
 }
 
 func discoveryFromGardenletConfiguration(cfg *config.GardenletConfiguration, kubeconfig []byte) (discovery.CachedDiscoveryInterface, error) {
@@ -375,12 +382,51 @@ func (g *Gardenlet) Run(ctx context.Context) error {
 	defer controllerCancel()
 	defer g.cleanup()
 
-	leaderElectionCtx, leaderElectionCancel := context.WithCancel(context.Background())
+	// Initialize /healthz manager.
+	g.HealthManager = healthz.NewPeriodicHealthz(seedcontroller.LeaseResyncGracePeriodSeconds * time.Second)
+	g.HealthManager.Set(true)
+
+	// Start HTTPS server.
+	if g.Config.Server.HTTPS.TLS == nil {
+		g.Logger.Info("No TLS server certificates provided... self-generating them now...")
+
+		_, tempDir, err := secrets.SelfGenerateTLSServerCertificate(
+			"gardenlet",
+			[]string{
+				"gardenlet",
+				fmt.Sprintf("gardenlet.%s", v1beta1constants.GardenNamespace),
+				fmt.Sprintf("gardenlet.%s.svc", v1beta1constants.GardenNamespace),
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		g.Config.Server.HTTPS.TLS = &config.TLSServer{
+			ServerCertPath: filepath.Join(tempDir, secrets.DataKeyCertificate),
+			ServerKeyPath:  filepath.Join(tempDir, secrets.DataKeyPrivateKey),
+		}
+
+		g.Logger.Info("TLS server certificates successfully self-generated.")
+	}
+
+	go server.
+		NewBuilder().
+		WithBindAddress(g.Config.Server.HTTPS.BindAddress).
+		WithPort(g.Config.Server.HTTPS.Port).
+		WithTLS(g.Config.Server.HTTPS.TLS.ServerCertPath, g.Config.Server.HTTPS.TLS.ServerKeyPath).
+		WithHandler("/metrics", promhttp.Handler()).
+		WithHandlerFunc("/healthz", healthz.HandlerFunc(g.HealthManager)).
+		Build().
+		Start(ctx)
 
 	// Prepare a reusable run function.
 	run := func(ctx context.Context) {
+		g.HealthManager.Start()
 		g.startControllers(ctx)
 	}
+
+	leaderElectionCtx, leaderElectionCancel := context.WithCancel(context.Background())
 
 	// If leader election is enabled, run via LeaderElector until done and exit.
 	if g.LeaderElection != nil {
@@ -418,6 +464,7 @@ func (g *Gardenlet) startControllers(ctx context.Context) {
 		g.Identity,
 		g.GardenNamespace,
 		g.Recorder,
+		g.HealthManager,
 	).Run(ctx)
 }
 

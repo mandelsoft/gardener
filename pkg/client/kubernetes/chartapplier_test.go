@@ -20,16 +20,16 @@ import (
 
 	cr "github.com/gardener/gardener/pkg/chartrenderer"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
+	"github.com/gardener/gardener/pkg/client/kubernetes/test"
 	"github.com/golang/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/helm/pkg/engine"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	. "github.com/gardener/gardener/test/framework"
+	. "github.com/gardener/gardener/test/gomega"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -54,13 +54,13 @@ var _ = Describe("chart applier", func() {
 		ctx = context.TODO()
 
 		c = fake.NewFakeClient()
-		d := &fakeDiscovery{
-			groupListFn: func() *metav1.APIGroupList {
+		d := &test.FakeDiscovery{
+			GroupListFn: func() *metav1.APIGroupList {
 				return &metav1.APIGroupList{
 					Groups: []metav1.APIGroup{v1Group},
 				}
 			},
-			resourceMapFn: func() map[string]*metav1.APIResourceList {
+			ResourceMapFn: func() map[string]*metav1.APIResourceList {
 				return map[string]*metav1.APIResourceList{
 					"v1": {
 						GroupVersion: "v1",
@@ -85,7 +85,9 @@ var _ = Describe("chart applier", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		renderer := cr.New(engine.New(), cap)
-		ca = kubernetes.NewChartApplier(renderer, newTestApplier(c, d))
+		a, err := test.NewTestApplier(c, d)
+		Expect(err).ToNot(HaveOccurred())
+		ca = kubernetes.NewChartApplier(renderer, a)
 		Expect(ca).NotTo(BeNil(), "should return chart applier")
 	})
 
@@ -176,8 +178,7 @@ var _ = Describe("chart applier", func() {
 			actual := &corev1.ConfigMap{}
 			err := c.Get(context.TODO(), client.ObjectKey{Name: cmName, Namespace: cns}, actual)
 
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			Expect(err).To(BeNotFoundError())
 		})
 
 		It("deletes the chart with custom values", func() {
@@ -216,8 +217,7 @@ var _ = Describe("chart applier", func() {
 			actual := &corev1.ConfigMap{}
 			err := c.Get(context.TODO(), client.ObjectKey{Name: cmName, Namespace: cns}, actual)
 
-			Expect(err).To(HaveOccurred())
-			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			Expect(err).To(BeNotFoundError())
 		})
 	})
 })

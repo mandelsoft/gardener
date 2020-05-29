@@ -29,10 +29,7 @@ import (
 )
 
 func hibernationLogger(key string) logrus.FieldLogger {
-	return gardenlogger.Logger.WithFields(logrus.Fields{
-		"controller": "shoot-hibernation",
-		"key":        key,
-	})
+	return gardenlogger.NewFieldLogger(gardenlogger.Logger, "shoot-hibernation", key)
 }
 
 func getShootHibernationSchedules(shoot *gardencorev1beta1.Shoot) []gardencorev1beta1.HibernationSchedule {
@@ -107,7 +104,7 @@ func ComputeHibernationSchedule(client gardencore.Interface, logger logrus.Field
 				}
 
 				cr.Schedule(start, NewHibernationJob(client, cronLogger, shoot, true))
-				cronLogger.Debugf("Next hibernation for spec %q will trigger at %v", *schedule.Start, start.Next(TimeNow()))
+				cronLogger.Debugf("Next hibernation for spec %q will trigger at %v", *schedule.Start, start.Next(TimeNow().UTC()))
 			}
 
 			if schedule.End != nil {
@@ -117,7 +114,7 @@ func ComputeHibernationSchedule(client gardencore.Interface, logger logrus.Field
 				}
 
 				cr.Schedule(end, NewHibernationJob(client, cronLogger, shoot, false))
-				cronLogger.Debugf("Next wakeup for spec %q will trigger at %v", *schedule.End, end.Next(TimeNow()))
+				cronLogger.Debugf("Next wakeup for spec %q will trigger at %v", *schedule.End, end.Next(TimeNow().UTC()))
 			}
 		}
 		schedule[locationID] = cr
@@ -192,8 +189,6 @@ func (c *Controller) deleteShootCron(logger logrus.FieldLogger, key string) {
 
 func (c *Controller) reconcileShootHibernationKey(key string) error {
 	logger := hibernationLogger(key)
-	logger.Info("Shoot Hibernation")
-
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		return err
@@ -209,6 +204,8 @@ func (c *Controller) reconcileShootHibernationKey(key string) error {
 		logger.Debugf("Unable to retrieve object from store: %v", key, err)
 		return err
 	}
+
+	logger.Info("[SHOOT HIBERNATION]")
 
 	if shoot.DeletionTimestamp != nil {
 		c.deleteShootCron(logger, key)

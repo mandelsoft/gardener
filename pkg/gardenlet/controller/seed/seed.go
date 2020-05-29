@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
+
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardencoreinformers "github.com/gardener/gardener/pkg/client/core/informers/externalversions"
@@ -29,7 +31,10 @@ import (
 	"github.com/gardener/gardener/pkg/gardenlet"
 	"github.com/gardener/gardener/pkg/gardenlet/apis/config"
 	confighelper "github.com/gardener/gardener/pkg/gardenlet/apis/config/helper"
+	"github.com/gardener/gardener/pkg/gardenlet/controller/lease"
+	"github.com/gardener/gardener/pkg/healthz"
 	"github.com/gardener/gardener/pkg/logger"
+	seedpkg "github.com/gardener/gardener/pkg/operation/seed"
 	"github.com/gardener/gardener/pkg/utils"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
 
@@ -40,6 +45,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
+	componentbaseconfig "k8s.io/component-base/config"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -47,14 +54,15 @@ import (
 type Controller struct {
 	k8sGardenClient        kubernetes.Interface
 	k8sGardenCoreInformers gardencoreinformers.SharedInformerFactory
+	getSeedClient          getSeedClient
 
-	config *config.GardenletConfiguration
+	config        *config.GardenletConfiguration
+	healthManager healthz.Manager
+	recorder      record.EventRecorder
 
 	control               ControlInterface
-	heartbeatControl      HeartbeatControlInterface
 	extensionCheckControl ExtensionCheckControlInterface
-
-	recorder record.EventRecorder
+	seedLeaseControl      lease.Controller
 
 	seedLister gardencorelisters.SeedLister
 	seedSynced cache.InformerSynced
@@ -62,13 +70,16 @@ type Controller struct {
 	controllerInstallationSynced cache.InformerSynced
 
 	seedQueue               workqueue.RateLimitingInterface
-	seedHeartbeatQueue      workqueue.RateLimitingInterface
+	seedLeaseQueue          workqueue.RateLimitingInterface
 	seedExtensionCheckQueue workqueue.RateLimitingInterface
 
 	shootLister gardencorelisters.ShootLister
 
 	workerCh               chan int
 	numberOfRunningWorkers int
+
+	lock     sync.Mutex
+	leaseMap map[string]bool
 }
 
 // NewSeedController takes a Kubernetes client for the Garden clusters <k8sGardenClient>, a struct
@@ -78,6 +89,7 @@ func NewSeedController(
 	k8sGardenClient kubernetes.Interface,
 	gardenCoreInformerFactory gardencoreinformers.SharedInformerFactory,
 	kubeInformerFactory kubeinformers.SharedInformerFactory,
+	healthManager healthz.Manager,
 	secrets map[string]*corev1.Secret,
 	imageVector imagevector.ImageVector,
 	componentImageVectors imagevector.ComponentImageVectors,
@@ -101,17 +113,20 @@ func NewSeedController(
 	seedController := &Controller{
 		k8sGardenClient:         k8sGardenClient,
 		k8sGardenCoreInformers:  gardenCoreInformerFactory,
-		control:                 NewDefaultControl(k8sGardenClient, gardenCoreInformerFactory, secrets, imageVector, componentImageVectors, identity, recorder, config, secretLister, shootLister),
-		heartbeatControl:        NewDefaultHeartbeatControl(k8sGardenClient, gardenCoreV1beta1Informer, identity, config),
-		extensionCheckControl:   NewDefaultExtensionCheckControl(k8sGardenClient.GardenCore(), controllerInstallationLister, metav1.Now),
+		getSeedClient:           seedpkg.GetSeedClient,
 		config:                  config,
+		healthManager:           healthManager,
 		recorder:                recorder,
+		control:                 NewDefaultControl(k8sGardenClient, gardenCoreInformerFactory, secrets, imageVector, componentImageVectors, identity, recorder, config, secretLister, shootLister),
+		extensionCheckControl:   NewDefaultExtensionCheckControl(k8sGardenClient.GardenCore(), controllerInstallationLister, metav1.Now),
+		seedLeaseControl:        lease.NewLeaseController(k8sGardenClient.Kubernetes(), time.Now, LeaseResyncSeconds, gardencorev1beta1.GardenerSeedLeaseNamespace),
 		seedLister:              seedLister,
 		seedQueue:               workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "seed"),
-		seedHeartbeatQueue:      workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "seed-hearbeat"),
+		seedLeaseQueue:          workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(time.Millisecond, 2*time.Second), "seed-lease"),
 		seedExtensionCheckQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "seed-extension-check"),
 		shootLister:             shootLister,
 		workerCh:                make(chan int),
+		leaseMap:                make(map[string]bool),
 	}
 
 	seedInformer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
@@ -126,7 +141,7 @@ func NewSeedController(
 	seedInformer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
 		FilterFunc: controllerutils.SeedFilterFunc(confighelper.SeedNameFromSeedConfig(config.SeedConfig), config.SeedSelector),
 		Handler: cache.ResourceEventHandlerFuncs{
-			AddFunc: seedController.seedHeartbeatAdd,
+			AddFunc: seedController.seedLeaseAdd,
 		},
 	})
 	seedController.seedSynced = seedInformer.Informer().HasSynced
@@ -180,26 +195,84 @@ func (c *Controller) Run(ctx context.Context, workers int) {
 
 	for i := 0; i < workers; i++ {
 		controllerutils.DeprecatedCreateWorker(ctx, c.seedQueue, "Seed", c.reconcileSeedKey, &waitGroup, c.workerCh)
-		controllerutils.DeprecatedCreateWorker(ctx, c.seedHeartbeatQueue, "Seed Heartbeat", c.reconcileSeedHeartbeatKey, &waitGroup, c.workerCh)
+		controllerutils.DeprecatedCreateWorker(ctx, c.seedLeaseQueue, "Seed Lease", c.reconcileSeedLeaseKey, &waitGroup, c.workerCh)
 		controllerutils.DeprecatedCreateWorker(ctx, c.seedExtensionCheckQueue, "Seed Extension Check", c.reconcileSeedExtensionCheckKey, &waitGroup, c.workerCh)
 	}
+
+	// health management
+	go c.startHealthManagement(ctx)
 
 	// Shutdown handling
 	<-ctx.Done()
 	c.seedQueue.ShutDown()
-	c.seedHeartbeatQueue.ShutDown()
+	c.seedLeaseQueue.ShutDown()
 	c.seedExtensionCheckQueue.ShutDown()
 
 	for {
-		if c.seedQueue.Len() == 0 && c.seedHeartbeatQueue.Len() == 0 && c.seedExtensionCheckQueue.Len() == 0 && c.numberOfRunningWorkers == 0 {
+		if c.seedQueue.Len() == 0 && c.seedLeaseQueue.Len() == 0 && c.seedExtensionCheckQueue.Len() == 0 && c.numberOfRunningWorkers == 0 {
 			logger.Logger.Debug("No running Seed worker and no items left in the queues. Terminated Seed controller...")
 			break
 		}
-		logger.Logger.Debugf("Waiting for %d Seed worker(s) to finish (%d item(s) left in the queues)...", c.numberOfRunningWorkers, c.seedQueue.Len()+c.seedHeartbeatQueue.Len()+c.seedExtensionCheckQueue.Len())
+		logger.Logger.Debugf("Waiting for %d Seed worker(s) to finish (%d item(s) left in the queues)...", c.numberOfRunningWorkers, c.seedQueue.Len()+c.seedLeaseQueue.Len()+c.seedExtensionCheckQueue.Len())
 		time.Sleep(5 * time.Second)
 	}
 
 	waitGroup.Wait()
+}
+
+func (c *Controller) startHealthManagement(ctx context.Context) {
+	var (
+		seedName              = confighelper.SeedNameFromSeedConfig(c.config.SeedConfig)
+		seedLabelSelector     labels.Selector
+		expectedHealthReports int
+		err                   error
+	)
+
+	if seedName != "" {
+		expectedHealthReports = 1
+	} else {
+		seedLabelSelector, err = metav1.LabelSelectorAsSelector(c.config.SeedSelector)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			time.Sleep(LeaseResyncGracePeriodSeconds / 2 * time.Second)
+
+			health := true
+
+			if seedName == "" {
+				seedList, err := c.k8sGardenCoreInformers.Core().V1beta1().Seeds().Lister().List(seedLabelSelector)
+				if err != nil {
+					logger.Logger.Errorf("error while listing seeds for health management: %+v", err)
+					health = false
+				}
+				expectedHealthReports = len(seedList)
+			}
+
+			c.lock.Lock()
+
+			if len(c.leaseMap) != expectedHealthReports {
+				health = false
+			} else {
+				for _, status := range c.leaseMap {
+					if !status {
+						health = false
+						break
+					}
+				}
+			}
+
+			c.leaseMap = make(map[string]bool)
+			c.lock.Unlock()
+			c.healthManager.Set(health)
+		}
+	}
 }
 
 // RunningWorkers returns the number of running workers.
@@ -216,3 +289,5 @@ func (c *Controller) CollectMetrics(ch chan<- prometheus.Metric) {
 	}
 	ch <- metric
 }
+
+type getSeedClient func(ctx context.Context, gardenClient client.Client, clientConnection componentbaseconfig.ClientConnectionConfiguration, inCluster bool, seedName string) (kubernetes.Interface, error)

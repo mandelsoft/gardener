@@ -46,19 +46,19 @@ func (a *genericActuator) Migrate(ctx context.Context, worker *extensionsv1alpha
 	}
 
 	if err := a.waitUntilMachineControllerManagerIsDeleted(ctx, worker.Namespace); err != nil {
-		return errors.Wrap(err, "failed deleting machine-controller-manager manager")
+		return errors.Wrap(err, "failed deleting machine-controller-manager")
 	}
 
 	if err := a.shallowDeleteAllObjects(ctx, worker.Namespace, &machinev1alpha1.MachineList{}); err != nil {
-		return errors.Wrap(err, "shallow Deletion of all machine failed")
+		return errors.Wrap(err, "shallow deletion of all machine failed")
 	}
 
 	if err := a.shallowDeleteAllObjects(ctx, worker.Namespace, &machinev1alpha1.MachineSetList{}); err != nil {
-		return errors.Wrap(err, "shallow Deletion of all machineSets failed")
+		return errors.Wrap(err, "shallow deletion of all machineSets failed")
 	}
 
 	if err := a.shallowDeleteAllObjects(ctx, worker.Namespace, &machinev1alpha1.MachineDeploymentList{}); err != nil {
-		return errors.Wrap(err, "shallow Deletion of all machineDeployments failed")
+		return errors.Wrap(err, "shallow deletion of all machineDeployments failed")
 	}
 
 	if err := a.shallowDeleteAllObjects(ctx, worker.Namespace, workerDelegate.MachineClassList()); err != nil {
@@ -70,10 +70,7 @@ func (a *genericActuator) Migrate(ctx context.Context, worker *extensionsv1alpha
 	}
 
 	// Wait until all machine resources have been properly deleted.
-	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
-	if err := a.waitUntilMachineResourcesDeleted(timeoutCtx, worker, workerDelegate); err != nil {
+	if err := a.waitUntilMachineResourcesDeleted(ctx, worker, workerDelegate); err != nil {
 		return gardencorev1beta1helper.DetermineError(err, fmt.Sprintf("Failed while waiting for all machine resources to be deleted: '%s'", err.Error()))
 	}
 

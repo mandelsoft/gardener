@@ -620,6 +620,7 @@ ControllerRegistrationSpec
 </em>
 </td>
 <td>
+<em>(Optional)</em>
 <p>Resources is a list of combinations of kinds (DNSProvider, Infrastructure, Generic, &hellip;) and their actual types
 (aws-route53, gcp, auditlog, &hellip;).</p>
 </td>
@@ -1249,6 +1250,20 @@ SeedVolume
 <p>Volume contains settings for persistentvolumes created in the seed cluster.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>settings</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.SeedSettings">
+SeedSettings
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Settings contains certain settings for this seed cluster.</p>
+</td>
+</tr>
 </table>
 </td>
 </tr>
@@ -1509,6 +1524,34 @@ string
 <td>
 <em>(Optional)</em>
 <p>SeedName is the name of the seed cluster that runs the control plane of the Shoot.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>seedSelector</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.SeedSelector">
+SeedSelector
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>SeedSelector is an optional selector which must match a seed&rsquo;s labels for the shoot to be scheduled on that seed.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>resources</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.NamedResourceReference">
+[]NamedResourceReference
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Resources holds a list of named resource references that can be referred to in extension configs by their names.</p>
 </td>
 </tr>
 </table>
@@ -2582,6 +2625,20 @@ string
 <p>A human readable message indicating details about the transition.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>codes</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.ErrorCode">
+[]ErrorCode
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Well-defined error codes in case the condition reports a problem.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="core.gardener.cloud/v1beta1.ConditionStatus">ConditionStatus
@@ -2688,8 +2745,47 @@ ProviderConfig
 <p>ProviderConfig contains type-specific configuration.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>policy</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.ControllerDeploymentPolicy">
+ControllerDeploymentPolicy
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Policy controls how the controller is deployed. It defaults to &lsquo;OnDemand&rsquo;.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>seedSelector</code></br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#labelselector-v1-meta">
+Kubernetes meta/v1.LabelSelector
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>SeedSelector contains an optional label selector for seeds. Only if the labels match then this controller will be
+considered for a deployment.
+An empty list means that all seeds are selected.</p>
+</td>
+</tr>
 </tbody>
 </table>
+<h3 id="core.gardener.cloud/v1beta1.ControllerDeploymentPolicy">ControllerDeploymentPolicy
+(<code>string</code> alias)</p></h3>
+<p>
+(<em>Appears on:</em>
+<a href="#core.gardener.cloud/v1beta1.ControllerDeployment">ControllerDeployment</a>)
+</p>
+<p>
+<p>ControllerDeploymentPolicy is a string alias.</p>
+</p>
 <h3 id="core.gardener.cloud/v1beta1.ControllerInstallationSpec">ControllerInstallationSpec
 </h3>
 <p>
@@ -2809,6 +2905,7 @@ ProviderConfig
 </em>
 </td>
 <td>
+<em>(Optional)</em>
 <p>Resources is a list of combinations of kinds (DNSProvider, Infrastructure, Generic, &hellip;) and their actual types
 (aws-route53, gcp, auditlog, &hellip;).</p>
 </td>
@@ -2893,6 +2990,20 @@ Kubernetes meta/v1.Duration
 <td>
 <em>(Optional)</em>
 <p>ReconcileTimeout defines how long Gardener should wait for the resource reconciliation.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>primary</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Primary determines if the controller backed by this ControllerRegistration is responsible for the extension
+resource&rsquo;s lifecycle. This field defaults to true. There must be exactly one primary controller for this kind/type
+combination.</p>
 </td>
 </tr>
 </tbody>
@@ -3128,6 +3239,7 @@ string
 (<code>string</code> alias)</p></h3>
 <p>
 (<em>Appears on:</em>
+<a href="#core.gardener.cloud/v1beta1.Condition">Condition</a>, 
 <a href="#core.gardener.cloud/v1beta1.LastError">LastError</a>)
 </p>
 <p>
@@ -3232,6 +3344,18 @@ ProviderConfig
 <td>
 <em>(Optional)</em>
 <p>ProviderConfig is the configuration passed to extension resource.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>disabled</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Disabled allows to disable extensions that were marked as &lsquo;globally enabled&rsquo; by Gardener administrators.</p>
 </td>
 </tr>
 </tbody>
@@ -4966,6 +5090,20 @@ MaintenanceTimeWindow
 <p>TimeWindow contains information about the time window for maintenance operations.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>confineSpecUpdateRollout</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ConfineSpecUpdateRollout prevents that changes/updates to the shoot specification will be rolled out immediately.
+Instead, they are rolled out during the shoot&rsquo;s maintenance time window. There is one exception that will trigger
+an immediate roll out which is changes to the Spec.Hibernation.Enabled field.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="core.gardener.cloud/v1beta1.MaintenanceAutoUpdate">MaintenanceAutoUpdate
@@ -5081,6 +5219,49 @@ Alerting
 <td>
 <em>(Optional)</em>
 <p>Alerting contains information about the alerting configuration for the shoot cluster.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="core.gardener.cloud/v1beta1.NamedResourceReference">NamedResourceReference
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#core.gardener.cloud/v1beta1.ShootSpec">ShootSpec</a>)
+</p>
+<p>
+<p>NamedResourceReference is a named reference to a resource.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>name</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Name of the resource reference.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>resourceRef</code></br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.15/#crossversionobjectreference-v1-autoscaling">
+Kubernetes autoscaling/v1.CrossVersionObjectReference
+</a>
+</em>
+</td>
+<td>
+<p>ResourceRef is a reference to a resource.</p>
 </td>
 </tr>
 </tbody>
@@ -5988,6 +6169,20 @@ string
 <p>Zones is a list of availability zones in this region.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>labels</code></br>
+<em>
+map[string]string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Labels is an optional set of key-value pairs that contain certain administrator-controlled labels for this region.
+It can be used by Gardener administrators/operators to provide additional information about a region, e.g. wrt
+quality, reliability, access restrictions, etc.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="core.gardener.cloud/v1beta1.SeedBackup">SeedBackup
@@ -6231,7 +6426,8 @@ string
 </h3>
 <p>
 (<em>Appears on:</em>
-<a href="#core.gardener.cloud/v1beta1.CloudProfileSpec">CloudProfileSpec</a>)
+<a href="#core.gardener.cloud/v1beta1.CloudProfileSpec">CloudProfileSpec</a>, 
+<a href="#core.gardener.cloud/v1beta1.ShootSpec">ShootSpec</a>)
 </p>
 <p>
 <p>SeedSelector contains constraints for selecting seed to be usable for shoots using a profile</p>
@@ -6271,6 +6467,162 @@ Kubernetes meta/v1.LabelSelector
 <td>
 <em>(Optional)</em>
 <p>Providers is optional and can be used by restricting seeds by their provider type. &lsquo;*&rsquo; can be used to enable seeds regardless of their provider type.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="core.gardener.cloud/v1beta1.SeedSettingExcessCapacityReservation">SeedSettingExcessCapacityReservation
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#core.gardener.cloud/v1beta1.SeedSettings">SeedSettings</a>)
+</p>
+<p>
+<p>SeedSettingExcessCapacityReservation controls the excess capacity reservation for shoot control planes in the
+seed. When enabled then this is done via PodPriority and requires the Seed cluster to have Kubernetes version 1.11
+or the PodPriority feature gate as well as the scheduling.k8s.io/v1alpha1 API group enabled.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>enabled</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<p>Enabled controls whether the excess capacity reservation should be enabled.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="core.gardener.cloud/v1beta1.SeedSettingScheduling">SeedSettingScheduling
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#core.gardener.cloud/v1beta1.SeedSettings">SeedSettings</a>)
+</p>
+<p>
+<p>SeedSettingScheduling controls settings for scheduling decisions for the seed.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>visible</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<p>Visible controls whether the gardener-scheduler shall consider this seed when scheduling shoots. Invisible seeds
+are not considered by the scheduler.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="core.gardener.cloud/v1beta1.SeedSettingShootDNS">SeedSettingShootDNS
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#core.gardener.cloud/v1beta1.SeedSettings">SeedSettings</a>)
+</p>
+<p>
+<p>SeedSettingShootDNS controls the shoot DNS settings for the seed.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>enabled</code></br>
+<em>
+bool
+</em>
+</td>
+<td>
+<p>Enabled controls whether the DNS for shoot clusters should be enabled. When disabled then all shoots using the
+seed won&rsquo;t get any DNS providers, DNS records, and no DNS extension controller is required to be installed here.
+This is useful for environments where DNS is not required.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="core.gardener.cloud/v1beta1.SeedSettings">SeedSettings
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#core.gardener.cloud/v1beta1.SeedSpec">SeedSpec</a>)
+</p>
+<p>
+<p>SeedSettings contains certain settings for this seed cluster.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>excessCapacityReservation</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.SeedSettingExcessCapacityReservation">
+SeedSettingExcessCapacityReservation
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ExcessCapacityReservation controls the excess capacity reservation for shoot control planes in the seed.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>scheduling</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.SeedSettingScheduling">
+SeedSettingScheduling
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Scheduling controls settings for scheduling decisions for the seed.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>shootDNS</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.SeedSettingShootDNS">
+SeedSettingShootDNS
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ShootDNS controls the shoot DNS settings for the seed.</p>
 </td>
 </tr>
 </tbody>
@@ -6389,6 +6741,20 @@ SeedVolume
 <td>
 <em>(Optional)</em>
 <p>Volume contains settings for persistentvolumes created in the seed cluster.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>settings</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.SeedSettings">
+SeedSettings
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Settings contains certain settings for this seed cluster.</p>
 </td>
 </tr>
 </tbody>
@@ -6953,6 +7319,34 @@ string
 <td>
 <em>(Optional)</em>
 <p>SeedName is the name of the seed cluster that runs the control plane of the Shoot.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>seedSelector</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.SeedSelector">
+SeedSelector
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>SeedSelector is an optional selector which must match a seed&rsquo;s labels for the shoot to be scheduled on that seed.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>resources</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.NamedResourceReference">
+[]NamedResourceReference
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Resources holds a list of named resource references that can be referred to in extension configs by their names.</p>
 </td>
 </tr>
 </tbody>

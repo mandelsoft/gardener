@@ -16,7 +16,6 @@ package botanist
 
 import (
 	"context"
-	"time"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
@@ -46,9 +45,6 @@ import (
 )
 
 const (
-	// DefaultInterval is the default interval for retry operations.
-	DefaultInterval = 5 * time.Second
-
 	// Provider is the kubernetes provider label.
 	Provider = "provider"
 	// KubernetesProvider is the 'kubernetes' value of the Provider label.
@@ -172,7 +168,7 @@ func cleanResourceFn(cleanOps utilclient.CleanOps, c client.Client, list runtime
 		return retry.Until(ctx, DefaultInterval, func(ctx context.Context) (done bool, err error) {
 			if err := cleanOps.CleanAndEnsureGone(ctx, c, list, opts...); err != nil {
 				if utilclient.AreObjectsRemaining(err) {
-					return retry.MinorError(helper.NewErrorWithCode(gardencorev1beta1.ErrorCleanupClusterResources, err.Error()))
+					return retry.MinorError(helper.NewErrorWithCodes(err.Error(), gardencorev1beta1.ErrorCleanupClusterResources))
 				}
 				return retry.SevereError(err)
 			}

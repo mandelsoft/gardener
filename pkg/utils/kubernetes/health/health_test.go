@@ -15,8 +15,6 @@
 package health_test
 
 import (
-	"testing"
-
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
@@ -34,11 +32,6 @@ import (
 
 func replicas(i int32) *int32 {
 	return &i
-}
-
-func TestHealth(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Health Suite")
 }
 
 var _ = Describe("health", func() {
@@ -245,7 +238,8 @@ var _ = Describe("health", func() {
 						},
 					},
 				},
-				Succeed()),
+				Succeed(),
+			),
 			Entry("generation outdated",
 				&extensionsv1alpha1.Infrastructure{
 					ObjectMeta: metav1.ObjectMeta{
@@ -259,7 +253,8 @@ var _ = Describe("health", func() {
 						},
 					},
 				},
-				HaveOccurred()),
+				HaveOccurred(),
+			),
 			Entry("gardener operation ongoing",
 				&extensionsv1alpha1.Infrastructure{
 					ObjectMeta: metav1.ObjectMeta{
@@ -275,7 +270,8 @@ var _ = Describe("health", func() {
 						},
 					},
 				},
-				HaveOccurred()),
+				HaveOccurred(),
+			),
 			Entry("last error non-nil",
 				&extensionsv1alpha1.Infrastructure{
 					Status: extensionsv1alpha1.InfrastructureStatus{
@@ -289,10 +285,12 @@ var _ = Describe("health", func() {
 						},
 					},
 				},
-				HaveOccurred()),
+				HaveOccurred(),
+			),
 			Entry("no last operation",
 				&extensionsv1alpha1.Infrastructure{},
-				HaveOccurred()),
+				HaveOccurred(),
+			),
 			Entry("last operation not succeeded",
 				&extensionsv1alpha1.Infrastructure{
 					Status: extensionsv1alpha1.InfrastructureStatus{
@@ -303,7 +301,8 @@ var _ = Describe("health", func() {
 						},
 					},
 				},
-				HaveOccurred()),
+				HaveOccurred(),
+			),
 		)
 	})
 })

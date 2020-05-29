@@ -31,6 +31,7 @@ import (
 	corelisters "github.com/gardener/gardener/pkg/client/core/listers/core/internalversion"
 	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/operation/common"
+	"github.com/gardener/gardener/pkg/utils"
 	cidrvalidation "github.com/gardener/gardener/pkg/utils/validation/cidr"
 	admissionutils "github.com/gardener/gardener/plugin/pkg/utils"
 
@@ -200,8 +201,15 @@ func (v *ValidateShoot) Admit(ctx context.Context, a admission.Attributes, o adm
 		// project name. These checks should only be performed for CREATE operations (we do not want to reject changes to existing
 		// Shoots in case the limits are changed in the future).
 		var lengthLimit = 21
-		if len(project.Name+shoot.Name) > lengthLimit {
-			return apierrors.NewBadRequest(fmt.Sprintf("the length of the shoot name and the project name must not exceed %d characters (project: %s; shoot: %s)", lengthLimit, project.Name, shoot.Name))
+		if len(shoot.Name) == 0 && len(shoot.GenerateName) > 0 {
+			var randomLength = 5
+			if len(project.Name+shoot.GenerateName) > lengthLimit-randomLength {
+				return apierrors.NewBadRequest(fmt.Sprintf("the length of the shoot generateName and the project name must not exceed %d characters (project: %s; shoot with generateName: %s)", lengthLimit-randomLength, project.Name, shoot.GenerateName))
+			}
+		} else {
+			if len(project.Name+shoot.Name) > lengthLimit {
+				return apierrors.NewBadRequest(fmt.Sprintf("the length of the shoot name and the project name must not exceed %d characters (project: %s; shoot: %s)", lengthLimit, project.Name, shoot.Name))
+			}
 		}
 		if strings.Contains(project.Name, "--") {
 			return apierrors.NewBadRequest(fmt.Sprintf("the project name must not contain two consecutive hyphens (project: %s)", project.Name))
@@ -221,6 +229,11 @@ func (v *ValidateShoot) Admit(ctx context.Context, a admission.Attributes, o adm
 	// We don't allow shoot to be created on the seed which is already marked to be deleted.
 	if seed != nil && seed.DeletionTimestamp != nil && a.GetOperation() == admission.Create {
 		return admission.NewForbidden(a, fmt.Errorf("cannot create shoot '%s' on seed '%s' already marked for deletion", shoot.Name, seed.Name))
+	}
+
+	if oldShoot.Spec.SeedName != nil && !apiequality.Semantic.DeepEqual(shoot.Spec.SeedName, oldShoot.Spec.SeedName) &&
+		seed != nil && seed.Spec.Backup == nil {
+		return admission.NewForbidden(a, fmt.Errorf("cannot change seed name, because seed backup is not configured, for shoot %q", shoot.Name))
 	}
 
 	if shoot.Spec.Provider.Type != cloudProfile.Spec.Type {
@@ -310,6 +323,12 @@ func (v *ValidateShoot) Admit(ctx context.Context, a admission.Attributes, o adm
 			shoot.ObjectMeta.Annotations = make(map[string]string)
 		}
 		controllerutils.AddTasks(shoot.ObjectMeta.Annotations, common.ShootTaskDeployInfrastructure)
+	}
+
+	if shoot.Spec.Maintenance != nil && utils.IsTrue(shoot.Spec.Maintenance.ConfineSpecUpdateRollout) &&
+		!apiequality.Semantic.DeepEqual(oldShoot.Spec, shoot.Spec) &&
+		shoot.Status.LastOperation != nil && shoot.Status.LastOperation.State == core.LastOperationStateFailed {
+		metav1.SetMetaDataAnnotation(&shoot.ObjectMeta, common.FailedShootNeedsRetryOperation, "true")
 	}
 
 	if shoot.DeletionTimestamp == nil {

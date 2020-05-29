@@ -12,18 +12,21 @@
 * [Gardener Scheduler](concepts/scheduler.md)
 * [Gardenlet](concepts/gardenlet.md)
 * [Gardener Seed Admission Controller](concepts/seed-admission-controller.md)
+* [Backup Restore](concepts/backup-restore.md)
 
 ## Usage
 
 * [Audit a Kubernetes cluster](usage/shoot_auditpolicy.md)
-* [Cluster purposes](usage/shoot_purposes.md)
+* [Shoot cluster purposes](usage/shoot_purposes.md)
 * [Custom `CoreDNS` configuration](usage/custom-dns.md)
 * [Trusted TLS certificate for shoot control planes](usage/trusted-tls-for-control-planes.md)
 * [Gardener configuration and usage](usage/configuration.md)
 * [OpenIDConnect presets](usage/openidconnect-presets.md)
 * [Supported Kubernetes versions](usage/supported_k8s_versions.md)
+* [Shoot Maintenance](usage/shoot_maintenance.md)
 * [Trigger shoot operations](usage/shoot_operations.md)
 * [Troubleshooting guide](usage/trouble_shooting_guide.md)
+* [ManagedIstio Feature Gate](usage/istio.md)
 
 ## Proposals
 
@@ -37,15 +40,18 @@
 * [GEP-8: SNI Passthrough proxy for kube-apiservers](proposals/08-shoot-apiserver-via-sni.md)
 * [GEP-9: Gardener integration test framework](proposals/09-test-framework.md)
 * [GEP-10: Support additional container runtimes](proposals/10-shoot-additional-container-runtimes.md)
+* [GEP-11: Utilize API Server Network Proxy to Invert Seed-to-Shoot Connectivity](proposals/11-apiserver-network-proxy.md)
 
 ## Development
 
 * [Setting up a local development environment](development/local_setup.md)
 * [Unit Testing and Dependency Management](development/testing_and_dependencies.md)
+* [Changing the API](development/changing-the-api.md)
 * [Features, Releases and Hotfixes](development/process.md)
 * [Adding New Cloud Providers](development/new-cloud-provider.md)
 * [Extending the Monitoring Stack](development/monitoring-stack.md)
 * [How to create log parser for container into fluent-bit](development/log_parsers.md)
+* [Feature Gates in Gardener](development/feature_gates.md)
 
 ## Extensions
 
@@ -76,7 +82,7 @@
   * Operating systems
     * [`OperatingSystemConfig` resource](extensions/operatingsystemconfig.md)
   * Container runtimes
-    * [`ContainerRuntime` resource](extensions/containerruntime.md)    
+    * [`ContainerRuntime` resource](extensions/containerruntime.md)
   * Generic (non-essential) extensions
     * [`Extension` resource](extensions/extension.md)
 * [Extending project roles](extensions/project-roles.md)

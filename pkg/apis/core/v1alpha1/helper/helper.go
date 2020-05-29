@@ -26,7 +26,7 @@ import (
 	versionutils "github.com/gardener/gardener/pkg/utils/version"
 
 	"github.com/Masterminds/semver"
-	errors "github.com/pkg/errors"
+	"github.com/pkg/errors"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -87,7 +87,7 @@ func GetOrInitCondition(conditions []gardencorev1alpha1.Condition, conditionType
 }
 
 // UpdatedCondition updates the properties of one specific condition.
-func UpdatedCondition(condition gardencorev1alpha1.Condition, status gardencorev1alpha1.ConditionStatus, reason, message string) gardencorev1alpha1.Condition {
+func UpdatedCondition(condition gardencorev1alpha1.Condition, status gardencorev1alpha1.ConditionStatus, reason, message string, codes ...gardencorev1alpha1.ErrorCode) gardencorev1alpha1.Condition {
 	newCondition := gardencorev1alpha1.Condition{
 		Type:               condition.Type,
 		Status:             status,
@@ -95,6 +95,7 @@ func UpdatedCondition(condition gardencorev1alpha1.Condition, status gardencorev
 		Message:            message,
 		LastTransitionTime: condition.LastTransitionTime,
 		LastUpdateTime:     Now(),
+		Codes:              codes,
 	}
 
 	if condition.Status != status {
@@ -103,12 +104,14 @@ func UpdatedCondition(condition gardencorev1alpha1.Condition, status gardencorev
 	return newCondition
 }
 
-func UpdatedConditionUnknownError(condition gardencorev1alpha1.Condition, err error) gardencorev1alpha1.Condition {
-	return UpdatedConditionUnknownErrorMessage(condition, err.Error())
+// UpdatedConditionUnknownError updates the condition to 'Unknown' status and the message of the given error.
+func UpdatedConditionUnknownError(condition gardencorev1alpha1.Condition, err error, codes ...gardencorev1alpha1.ErrorCode) gardencorev1alpha1.Condition {
+	return UpdatedConditionUnknownErrorMessage(condition, err.Error(), codes...)
 }
 
-func UpdatedConditionUnknownErrorMessage(condition gardencorev1alpha1.Condition, message string) gardencorev1alpha1.Condition {
-	return UpdatedCondition(condition, gardencorev1alpha1.ConditionUnknown, gardencorev1alpha1.ConditionCheckError, message)
+// UpdatedConditionUnknownErrorMessage updates the condition with 'Unknown' status and the given message.
+func UpdatedConditionUnknownErrorMessage(condition gardencorev1alpha1.Condition, message string, codes ...gardencorev1alpha1.ErrorCode) gardencorev1alpha1.Condition {
+	return UpdatedCondition(condition, gardencorev1alpha1.ConditionUnknown, gardencorev1alpha1.ConditionCheckError, message, codes...)
 }
 
 // MergeConditions merges the given <oldConditions> with the <newConditions>. Existing conditions are superseded by
@@ -171,17 +174,23 @@ func IsControllerInstallationSuccessful(controllerInstallation gardencorev1alpha
 	return installed && healthy
 }
 
-// ComputeOperationType checksthe <lastOperation> and determines whether is it is Create operation or reconcile operation
+// ComputeOperationType checks the <lastOperation> and determines whether it is Create, Delete, Reconcile, Migrate or Restore operation
 func ComputeOperationType(meta metav1.ObjectMeta, lastOperation *gardencorev1alpha1.LastOperation) gardencorev1alpha1.LastOperationType {
 	switch {
 	case meta.Annotations[v1alpha1constants.GardenerOperation] == v1alpha1constants.GardenerOperationMigrate:
 		return gardencorev1alpha1.LastOperationTypeMigrate
+	case meta.Annotations[v1alpha1constants.GardenerOperation] == v1alpha1constants.GardenerOperationRestore:
+		return gardencorev1alpha1.LastOperationTypeRestore
 	case meta.DeletionTimestamp != nil:
 		return gardencorev1alpha1.LastOperationTypeDelete
 	case lastOperation == nil:
 		return gardencorev1alpha1.LastOperationTypeCreate
 	case (lastOperation.Type == gardencorev1alpha1.LastOperationTypeCreate && lastOperation.State != gardencorev1alpha1.LastOperationStateSucceeded):
 		return gardencorev1alpha1.LastOperationTypeCreate
+	case (lastOperation.Type == gardencorev1alpha1.LastOperationTypeMigrate && lastOperation.State != gardencorev1alpha1.LastOperationStateSucceeded):
+		return gardencorev1alpha1.LastOperationTypeMigrate
+	case (lastOperation.Type == gardencorev1alpha1.LastOperationTypeRestore && lastOperation.State != gardencorev1alpha1.LastOperationStateSucceeded):
+		return gardencorev1alpha1.LastOperationTypeRestore
 	}
 	return gardencorev1alpha1.LastOperationTypeReconcile
 }

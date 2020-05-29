@@ -28,6 +28,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	gomegatypes "github.com/onsi/gomega/types"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -394,6 +395,7 @@ var _ = Describe("Shoot Validation Tests", func() {
 			shoot.Spec.Region = ""
 			shoot.Spec.SecretBindingName = ""
 			shoot.Spec.SeedName = pointer.StringPtr("")
+			shoot.Spec.SeedSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"foo": "no/slash/allowed"}}
 			shoot.Spec.Provider.Type = ""
 
 			errorList := ValidateShoot(shoot)
@@ -414,6 +416,10 @@ var _ = Describe("Shoot Validation Tests", func() {
 				PointTo(MatchFields(IgnoreExtras, Fields{
 					"Type":  Equal(field.ErrorTypeInvalid),
 					"Field": Equal("spec.seedName"),
+				})),
+				PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeInvalid),
+					"Field": Equal("spec.seedSelector.matchLabels"),
 				})),
 				PointTo(MatchFields(IgnoreExtras, Fields{
 					"Type":  Equal(field.ErrorTypeRequired),
@@ -506,6 +512,48 @@ var _ = Describe("Shoot Validation Tests", func() {
 				Type: "arbitrary",
 			}
 			shoot.Spec.Extensions = append(shoot.Spec.Extensions, extension)
+
+			errorList := ValidateShoot(shoot)
+
+			Expect(errorList).To(BeEmpty())
+		})
+
+		It("should forbid resources w/o names or w/ invalid references", func() {
+			ref := core.NamedResourceReference{}
+			shoot.Spec.Resources = append(shoot.Spec.Resources, ref)
+
+			errorList := ValidateShoot(shoot)
+
+			Expect(errorList).To(ConsistOf(
+				PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeRequired),
+					"Field": Equal("spec.resources[0].name"),
+				})),
+				PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeRequired),
+					"Field": Equal("spec.resources[0].resourceRef.kind"),
+				})),
+				PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeRequired),
+					"Field": Equal("spec.resources[0].resourceRef.name"),
+				})),
+				PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeRequired),
+					"Field": Equal("spec.resources[0].resourceRef.apiVersion"),
+				})),
+			))
+		})
+
+		It("should allow resources w/ names and valid references", func() {
+			ref := core.NamedResourceReference{
+				Name: "test",
+				ResourceRef: autoscalingv1.CrossVersionObjectReference{
+					Kind:       "Secret",
+					Name:       "test-secret",
+					APIVersion: "v1",
+				},
+			}
+			shoot.Spec.Resources = append(shoot.Spec.Resources, ref)
 
 			errorList := ValidateShoot(shoot)
 
@@ -1234,6 +1282,21 @@ var _ = Describe("Shoot Validation Tests", func() {
 					"Field": Equal("spec.kubernetes.kubeAPIServer.admissionPlugins[0].name"),
 				}))
 			})
+
+			It("should forbid specifying the SecurityContextDeny admission plugin", func() {
+				shoot.Spec.Kubernetes.KubeAPIServer.AdmissionPlugins = []core.AdmissionPlugin{
+					{
+						Name: "SecurityContextDeny",
+					},
+				}
+
+				errorList := ValidateShoot(shoot)
+
+				Expect(errorList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeForbidden),
+					"Field": Equal("spec.kubernetes.kubeAPIServer.admissionPlugins[0].name"),
+				}))))
+			})
 		})
 
 		Context("KubeControllerManager validation < 1.12", func() {
@@ -1469,10 +1532,30 @@ var _ = Describe("Shoot Validation Tests", func() {
 				mode := core.ProxyMode("IPVS")
 				shoot.Spec.Kubernetes.Version = "1.14.1"
 				shoot.Spec.Kubernetes.KubeProxy.Mode = &mode
-
 				errorList := ValidateShoot(shoot)
-
 				Expect(errorList).To(HaveLen(2))
+			})
+
+			It("should be successful when using kubernetes version 1.16.1 and proxy mode is changed", func() {
+				mode := core.ProxyMode("IPVS")
+				kubernetesConfig := core.KubernetesConfig{}
+				config := core.KubeProxyConfig{
+					KubernetesConfig: kubernetesConfig,
+					Mode:             &mode,
+				}
+				shoot.Spec.Kubernetes.KubeProxy = &config
+				shoot.Spec.Kubernetes.Version = "1.16.1"
+				oldMode := core.ProxyMode("IPTables")
+				oldConfig := core.KubeProxyConfig{
+					KubernetesConfig: kubernetesConfig,
+					Mode:             &oldMode,
+				}
+				shoot.Spec.Kubernetes.KubeProxy.Mode = &mode
+				oldShoot := shoot.DeepCopy()
+				oldShoot.Spec.Kubernetes.KubeProxy = &oldConfig
+
+				errorList := ValidateShootSpecUpdate(&shoot.Spec, &oldShoot.Spec, false, field.NewPath("spec"))
+				Expect(errorList).To(BeEmpty())
 			})
 		})
 

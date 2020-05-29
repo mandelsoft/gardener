@@ -57,6 +57,9 @@ type GardenletConfiguration struct {
 	// KubernetesLogLevel is the log level used for Kubernetes' k8s.io/klog functions.
 	// +optional
 	KubernetesLogLevel *klog.Level `json:"kubernetesLogLevel,omitempty"`
+	// Server defines the configuration of the HTTP server.
+	// +optional
+	Server *ServerConfiguration `json:"server,omitempty"`
 	// FeatureGates is a map of feature names to bools that enable or disable alpha/experimental
 	// features. This field modifies piecemeal the built-in default values from
 	// "github.com/gardener/gardener/pkg/gardenlet/features/features.go".
@@ -124,6 +127,9 @@ type GardenletControllerConfiguration struct {
 	// ControllerInstallationCare defines the configuration of the ControllerInstallationCare controller.
 	// +optional
 	ControllerInstallationCare *ControllerInstallationCareControllerConfiguration `json:"controllerInstallationCare,omitempty"`
+	// ControllerInstallationRequired defines the configuration of the ControllerInstallationRequired controller.
+	// +optional
+	ControllerInstallationRequired *ControllerInstallationRequiredControllerConfiguration `json:"controllerInstallationRequired,omitempty"`
 	// Seed defines the configuration of the Seed controller.
 	// +optional
 	Seed *SeedControllerConfiguration `json:"seed,omitempty"`
@@ -180,19 +186,21 @@ type ControllerInstallationCareControllerConfiguration struct {
 	SyncPeriod *metav1.Duration `json:"syncPeriod,omitempty"`
 }
 
+// ControllerInstallationRequiredControllerConfiguration defines the configuration of the ControllerInstallationRequired
+// controller.
+type ControllerInstallationRequiredControllerConfiguration struct {
+	// ConcurrentSyncs is the number of workers used for the controller to work on
+	// events.
+	// +optional
+	ConcurrentSyncs *int `json:"concurrentSyncs,omitempty"`
+}
+
 // SeedControllerConfiguration defines the configuration of the Seed controller.
 type SeedControllerConfiguration struct {
 	// ConcurrentSyncs is the number of workers used for the controller to work on
 	// events.
 	// +optional
 	ConcurrentSyncs *int `json:"concurrentSyncs,omitempty"`
-	// ReserveExcessCapacity indicates whether the Seed controller should reserve
-	// excess capacity for Shoot control planes in the Seeds. This is done via
-	// PodPriority and requires the Seed cluster to have Kubernetes version 1.11 or
-	// the PodPriority feature gate as well as the scheduling.k8s.io/v1alpha1 API
-	// group enabled. It defaults to true.
-	// +optional
-	ReserveExcessCapacity *bool `json:"reserveExcessCapacity,omitempty"`
 	// SyncPeriod is the duration how often the existing resources are reconciled.
 	// +optional
 	SyncPeriod *metav1.Duration `json:"syncPeriod,omitempty"`
@@ -228,10 +236,6 @@ type ShootControllerConfiguration struct {
 	// in case of errors.
 	// +optional
 	RetryDuration *metav1.Duration `json:"retryDuration,omitempty"`
-	// RetrySyncPeriod is the duration how fast Shoots with an errornous operation are
-	// re-added to the queue so that the operation can be retried. Defaults to 15s.
-	// +optional
-	RetrySyncPeriod *metav1.Duration `json:"retrySyncPeriod,omitempty"`
 	// SyncPeriod is the duration how often the existing resources are reconciled.
 	// +optional
 	SyncPeriod *metav1.Duration `json:"syncPeriod,omitempty"`
@@ -249,6 +253,13 @@ type ShootCareControllerConfiguration struct {
 	// already running on them).
 	// +optional
 	SyncPeriod *metav1.Duration `json:"syncPeriod,omitempty"`
+	// StaleExtensionHealthCheckThreshold configures the threshold when Gardener considers a Health check report of an
+	// Extension CRD as outdated.
+	// The StaleExtensionHealthCheckThreshold should have some leeway in case a Gardener extension is temporarily unavailable.
+	// If not set, Gardener does not verify for outdated health check reports. This is for backwards-compatibility reasons
+	// and will become default in a future version.
+	// +optional
+	StaleExtensionHealthCheckThreshold *metav1.Duration `json:"staleExtensionHealthCheckThreshold,omitempty"`
 	// ConditionThresholds defines the condition threshold per condition type.
 	// +optional
 	ConditionThresholds []ConditionThreshold `json:"conditionThresholds,omitempty"`
@@ -293,6 +304,38 @@ type LeaderElectionConfiguration struct {
 // SeedConfig contains configuration for the seed cluster.
 type SeedConfig struct {
 	gardencorev1beta1.Seed `json:",inline"`
+}
+
+// ServerConfiguration contains details for the HTTP(S) servers.
+type ServerConfiguration struct {
+	// HTTPS is the configuration for the HTTPS server.
+	HTTPS HTTPSServer `json:"https"`
+}
+
+// Server contains information for HTTP(S) server configuration.
+type Server struct {
+	// BindAddress is the IP address on which to listen for the specified port.
+	BindAddress string `json:"bindAddress"`
+	// Port is the port on which to serve unsecured, unauthenticated access.
+	Port int `json:"port"`
+}
+
+// HTTPSServer is the configuration for the HTTPSServer server.
+type HTTPSServer struct {
+	// Server is the configuration for the bind address and the port.
+	Server `json:",inline"`
+	// TLSServer contains information about the TLS configuration for a HTTPS server. If empty then a proper server
+	// certificate will be self-generated during startup.
+	// +optional
+	TLS *TLSServer `json:"tls,omitempty"`
+}
+
+// TLSServer contains information about the TLS configuration for a HTTPS server.
+type TLSServer struct {
+	// ServerCertPath is the path to the server certificate file.
+	ServerCertPath string `json:"serverCertPath"`
+	// ServerKeyPath is the path to the private key file.
+	ServerKeyPath string `json:"serverKeyPath"`
 }
 
 const (

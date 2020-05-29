@@ -28,5 +28,17 @@ func ValidateGardenletConfiguration(cfg *config.GardenletConfiguration) field.Er
 		allErrs = append(allErrs, field.Invalid(field.NewPath("seedSelector/seedConfig"), cfg, "exactly one of `seedConfig` and `seedSelector` is required"))
 	}
 
+	serverPath := field.NewPath("server")
+	if cfg.Server == nil {
+		allErrs = append(allErrs, field.Required(serverPath, "require configuration for server"))
+	} else {
+		if len(cfg.Server.HTTPS.BindAddress) == 0 {
+			allErrs = append(allErrs, field.Required(serverPath.Child("https", "bindAddress"), "bind address must be specified"))
+		}
+		if cfg.Server.HTTPS.Port == 0 {
+			allErrs = append(allErrs, field.Required(serverPath.Child("https", "port"), "port must be specified"))
+		}
+	}
+
 	return allErrs
 }

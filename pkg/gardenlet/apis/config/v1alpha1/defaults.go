@@ -81,6 +81,9 @@ func SetDefaults_GardenletConfiguration(obj *GardenletConfiguration) {
 	if obj.Controllers.ControllerInstallationCare == nil {
 		obj.Controllers.ControllerInstallationCare = &ControllerInstallationCareControllerConfiguration{}
 	}
+	if obj.Controllers.ControllerInstallationRequired == nil {
+		obj.Controllers.ControllerInstallationRequired = &ControllerInstallationRequiredControllerConfiguration{}
+	}
 	if obj.Controllers.Seed == nil {
 		obj.Controllers.Seed = &SeedControllerConfiguration{}
 	}
@@ -110,6 +113,16 @@ func SetDefaults_GardenletConfiguration(obj *GardenletConfiguration) {
 	if obj.KubernetesLogLevel == nil {
 		v := DefaultKubernetesLogLevel
 		obj.KubernetesLogLevel = &v
+	}
+
+	if obj.Server == nil {
+		obj.Server = &ServerConfiguration{}
+	}
+	if len(obj.Server.HTTPS.BindAddress) == 0 {
+		obj.Server.HTTPS.BindAddress = "0.0.0.0"
+	}
+	if obj.Server.HTTPS.Port == 0 {
+		obj.Server.HTTPS.Port = 2720
 	}
 }
 
@@ -217,16 +230,21 @@ func SetDefaults_ControllerInstallationCareControllerConfiguration(obj *Controll
 	}
 }
 
+// SetDefaults_ControllerInstallationRequiredControllerConfiguration sets defaults for the ControllerInstallationRequired controller.
+func SetDefaults_ControllerInstallationRequiredControllerConfiguration(obj *ControllerInstallationRequiredControllerConfiguration) {
+	if obj.ConcurrentSyncs == nil {
+		// The controller actually starts one controller per extension resource per Seed.
+		// For one seed that is already 1 * 10 extension resources = 10 workers.
+		v := 1
+		obj.ConcurrentSyncs = &v
+	}
+}
+
 // SetDefaults_SeedControllerConfiguration sets defaults for the seed controller.
 func SetDefaults_SeedControllerConfiguration(obj *SeedControllerConfiguration) {
 	if obj.ConcurrentSyncs == nil {
 		v := DefaultControllerConcurrentSyncs
 		obj.ConcurrentSyncs = &v
-	}
-
-	trueVar := true
-	if obj.ReserveExcessCapacity == nil {
-		obj.ReserveExcessCapacity = &trueVar
 	}
 
 	if obj.SyncPeriod == nil {
@@ -258,13 +276,8 @@ func SetDefaults_ShootControllerConfiguration(obj *ShootControllerConfiguration)
 	}
 
 	if obj.RetryDuration == nil {
-		v := metav1.Duration{Duration: 24 * time.Hour}
+		v := metav1.Duration{Duration: 12 * time.Hour}
 		obj.RetryDuration = &v
-	}
-
-	if obj.RetrySyncPeriod == nil {
-		v := metav1.Duration{Duration: 15 * time.Second}
-		obj.RetrySyncPeriod = &v
 	}
 }
 
@@ -284,7 +297,9 @@ func SetDefaults_ShootCareControllerConfiguration(obj *ShootCareControllerConfig
 // SetDefaults_ShootStateSyncControllerConfiguration sets defaults for the shoot state controller.
 func SetDefaults_ShootStateSyncControllerConfiguration(obj *ShootStateSyncControllerConfiguration) {
 	if obj.ConcurrentSyncs == nil {
-		v := DefaultControllerConcurrentSyncs
+		// The controller actually starts one controller per extension resource per Seed.
+		// For one seed that is already 1 * 10 extension resources = 10 workers.
+		v := 1
 		obj.ConcurrentSyncs = &v
 	}
 

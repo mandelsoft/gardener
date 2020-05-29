@@ -18,6 +18,7 @@ import (
 	"context"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	gardencoreinformers "github.com/gardener/gardener/pkg/client/core/informers/externalversions"
 	mockclient "github.com/gardener/gardener/pkg/mock/controller-runtime/client"
 	"github.com/gardener/gardener/pkg/scheduler/apis/config"
@@ -27,6 +28,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
 )
 
 var _ = Describe("Scheduler_Control", func() {
@@ -61,9 +63,17 @@ var _ = Describe("Scheduler_Control", func() {
 					Region: region,
 				},
 				Networks: gardencorev1beta1.SeedNetworks{
-					Nodes:    makeStrPtr("10.10.0.0/16"),
+					Nodes:    pointer.StringPtr("10.10.0.0/16"),
 					Pods:     "10.20.0.0/16",
 					Services: "10.30.0.0/16",
+				},
+				Settings: &gardencorev1beta1.SeedSettings{
+					Scheduling: &gardencorev1beta1.SeedSettingScheduling{
+						Visible: true,
+					},
+					ShootDNS: &gardencorev1beta1.SeedSettingShootDNS{
+						Enabled: true,
+					},
 				},
 			},
 			Status: gardencorev1beta1.SeedStatus{
@@ -91,9 +101,9 @@ var _ = Describe("Scheduler_Control", func() {
 					Type: providerType,
 				},
 				Networking: gardencorev1beta1.Networking{
-					Nodes:    makeStrPtr("10.40.0.0/16"),
-					Pods:     makeStrPtr("10.50.0.0/16"),
-					Services: makeStrPtr("10.60.0.0/16"),
+					Nodes:    pointer.StringPtr("10.40.0.0/16"),
+					Pods:     pointer.StringPtr("10.50.0.0/16"),
+					Services: pointer.StringPtr("10.60.0.0/16"),
 				},
 			},
 		}
@@ -412,56 +422,117 @@ var _ = Describe("Scheduler_Control", func() {
 			Expect(bestSeed.Name).To(Equal(secondSeed.Name))
 		})
 
-		It("should find seed cluster that matches the seed selector and is from another region", func() {
-			oldOsEuDe200 := cloudProfile
-			oldOsEuDe200.Name = "os-eu-de-200"
-			oldOsEuDe200.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
+		It("should find seed cluster that matches the seed selector of the CloudProfile and is from another region", func() {
+			oldCloudProfile1 := cloudProfile
+			oldCloudProfile1.Name = "cloudprofile1"
+			oldCloudProfile1.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
 				LabelSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
-						"environment": "ccie",
+						"environment": "one",
 					},
 				},
 			}
-			oldOsEuDe200.Spec.Regions = []gardencorev1beta1.Region{{Name: "name: eu-de-200"}}
-			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&oldOsEuDe200)).To(Succeed())
+			oldCloudProfile1.Spec.Regions = []gardencorev1beta1.Region{{Name: "name: eu-de-200"}}
+			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&oldCloudProfile1)).To(Succeed())
 
-			newConvergedCloud := cloudProfile
-			newConvergedCloud.Name = "converged-cloud"
-			newConvergedCloud.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
+			newCloudProfile2 := cloudProfile
+			newCloudProfile2.Name = "cloudprofile2"
+			newCloudProfile2.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
 				LabelSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
-						"environment": "ccee",
+						"environment": "two",
 					},
 				},
 			}
-			newConvergedCloud.Spec.Regions = []gardencorev1beta1.Region{{Name: "name: eu-nl-1"}}
-			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&newConvergedCloud)).To(Succeed())
+			newCloudProfile2.Spec.Regions = []gardencorev1beta1.Region{{Name: "name: eu-nl-1"}}
+			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&newCloudProfile2)).To(Succeed())
 
 			// seeds
-			oldSeedOsEuDe200 := seed
-			oldSeedOsEuDe200.Spec.Provider.Type = "openstack"
-			oldSeedOsEuDe200.Spec.Provider.Region = "eu-de-200"
-			oldSeedOsEuDe200.Name = "os-eu-de-200"
-			oldSeedOsEuDe200.Labels = map[string]string{"environment": "ccie"}
-			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&oldSeedOsEuDe200)).To(Succeed())
+			oldSeedEnvironment1 := seed
+			oldSeedEnvironment1.Spec.Provider.Type = "some-type"
+			oldSeedEnvironment1.Spec.Provider.Region = "eu-de-200"
+			oldSeedEnvironment1.Name = "seed1"
+			oldSeedEnvironment1.Labels = map[string]string{"environment": "one"}
+			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&oldSeedEnvironment1)).To(Succeed())
 
-			newSeedCCEE := seed
-			newSeedCCEE.Spec.Provider.Type = "openstack"
-			newSeedCCEE.Spec.Provider.Region = "eu-nl-1"
-			newSeedCCEE.Name = "ccee-m3-eu1"
-			newSeedCCEE.Labels = map[string]string{"environment": "ccee"}
-			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&newSeedCCEE)).To(Succeed())
+			newSeedEnvironment2 := seed
+			newSeedEnvironment2.Spec.Provider.Type = "some-type"
+			newSeedEnvironment2.Spec.Provider.Region = "eu-nl-1"
+			newSeedEnvironment2.Name = "seed2"
+			newSeedEnvironment2.Labels = map[string]string{"environment": "two"}
+			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&newSeedEnvironment2)).To(Succeed())
 
 			// shoot
 			testShoot := shoot
 			testShoot.Spec.Region = "eu-de-2"
-			testShoot.Spec.CloudProfileName = "converged-cloud"
-			testShoot.Spec.Provider.Type = "openstack"
+			testShoot.Spec.CloudProfileName = "cloudprofile2"
+			testShoot.Spec.Provider.Type = "some-type"
 
 			bestSeed, err := determineSeed(&testShoot, gardenCoreInformerFactory.Core().V1beta1().Seeds().Lister(), gardenCoreInformerFactory.Core().V1beta1().Shoots().Lister(), gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Lister(), schedulerConfiguration.Schedulers.Shoot.Strategy)
 
 			Expect(err).NotTo(HaveOccurred())
-			Expect(bestSeed.Name).To(Equal(newSeedCCEE.Name))
+			Expect(bestSeed.Name).To(Equal(newSeedEnvironment2.Name))
+		})
+
+		It("should find seed cluster that matches the seed selector of the Shoot and is from another region", func() {
+			oldCloudProfile1 := cloudProfile
+			oldCloudProfile1.Name = "cloudprofile1"
+			oldCloudProfile1.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
+				LabelSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"environment": "one",
+					},
+				},
+			}
+			oldCloudProfile1.Spec.Regions = []gardencorev1beta1.Region{{Name: "name: eu-de-200"}}
+			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&oldCloudProfile1)).To(Succeed())
+			newCloudProfile2 := cloudProfile
+			newCloudProfile2.Name = "cloudprofile2"
+			newCloudProfile2.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
+				LabelSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"environment": "two",
+					},
+				},
+			}
+			newCloudProfile2.Spec.Regions = []gardencorev1beta1.Region{{Name: "name: eu-nl-1"}}
+			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&newCloudProfile2)).To(Succeed())
+
+			// seeds
+			oldSeedEnvironment1 := seed
+			oldSeedEnvironment1.Spec.Provider.Type = "some-type"
+			oldSeedEnvironment1.Spec.Provider.Region = "eu-de-200"
+			oldSeedEnvironment1.Name = "seed1"
+			oldSeedEnvironment1.Labels = map[string]string{"environment": "one"}
+			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&oldSeedEnvironment1)).To(Succeed())
+
+			newSeedEnvironment2 := seed
+			newSeedEnvironment2.Spec.Provider.Type = "some-type"
+			newSeedEnvironment2.Spec.Provider.Region = "eu-nl-1"
+			newSeedEnvironment2.Name = "seed2"
+			newSeedEnvironment2.Labels = map[string]string{"environment": "two"}
+			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&newSeedEnvironment2)).To(Succeed())
+
+			newSeedEnvironment3 := seed
+			newSeedEnvironment3.Spec.Provider.Type = "some-type"
+			newSeedEnvironment3.Spec.Provider.Region = "eu-nl-4"
+			newSeedEnvironment3.Name = "seed3"
+			newSeedEnvironment3.Labels = map[string]string{"environment": "two", "my-preferred": "seed"}
+			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&newSeedEnvironment3)).To(Succeed())
+
+			// shoot
+			testShoot := shoot
+			testShoot.Spec.Region = "eu-de-2"
+			testShoot.Spec.CloudProfileName = "cloudprofile2"
+			testShoot.Spec.Provider.Type = "some-type"
+			testShoot.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"my-preferred": "seed"}},
+			}
+
+			bestSeed, err := determineSeed(&testShoot, gardenCoreInformerFactory.Core().V1beta1().Seeds().Lister(), gardenCoreInformerFactory.Core().V1beta1().Shoots().Lister(), gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Lister(), schedulerConfiguration.Schedulers.Shoot.Strategy)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(bestSeed.Name).To(Equal(newSeedEnvironment3.Name))
 		})
 	})
 
@@ -495,8 +566,8 @@ var _ = Describe("Scheduler_Control", func() {
 			shoot.Spec.Networking.Services = nil
 
 			seed.Spec.Networks.ShootDefaults = &gardencorev1beta1.ShootNetworks{
-				Pods:     makeStrPtr("10.50.0.0/16"),
-				Services: makeStrPtr("10.60.0.0/16"),
+				Pods:     pointer.StringPtr("10.50.0.0/16"),
+				Services: pointer.StringPtr("10.60.0.0/16"),
 			}
 
 			bestSeed, err := determineSeed(&shoot, gardenCoreInformerFactory.Core().V1beta1().Seeds().Lister(), gardenCoreInformerFactory.Core().V1beta1().Shoots().Lister(), gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Lister(), schedulerConfiguration.Schedulers.Shoot.Strategy)
@@ -557,6 +628,32 @@ var _ = Describe("Scheduler_Control", func() {
 			Expect(bestSeed).To(BeNil())
 		})
 
+		It("should fail because it cannot find an unprotected seed cluster for a shoot not in garden namespace", func() {
+			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
+			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
+
+			shoot.Namespace = "garden-foo"
+			seed.Spec.Taints = []gardencorev1beta1.SeedTaint{{Key: gardencorev1beta1.SeedTaintProtected}}
+
+			bestSeed, err := determineSeed(&shoot, gardenCoreInformerFactory.Core().V1beta1().Seeds().Lister(), gardenCoreInformerFactory.Core().V1beta1().Shoots().Lister(), gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Lister(), schedulerConfiguration.Schedulers.Shoot.Strategy)
+
+			Expect(err).To(HaveOccurred())
+			Expect(bestSeed).To(BeNil())
+		})
+
+		It("should succeed because it considers a protected seed cluster for a shoot in garden namespace", func() {
+			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
+			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
+
+			shoot.Namespace = v1beta1constants.GardenNamespace
+			seed.Spec.Taints = []gardencorev1beta1.SeedTaint{{Key: gardencorev1beta1.SeedTaintProtected}}
+
+			bestSeed, err := determineSeed(&shoot, gardenCoreInformerFactory.Core().V1beta1().Seeds().Lister(), gardenCoreInformerFactory.Core().V1beta1().Shoots().Lister(), gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Lister(), schedulerConfiguration.Schedulers.Shoot.Strategy)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(bestSeed.Name).To(Equal(seed.Name))
+		})
+
 		It("should fail because it cannot find a seed cluster due to region that no seed supports", func() {
 			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
 			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
@@ -571,6 +668,24 @@ var _ = Describe("Scheduler_Control", func() {
 
 		It("should fail because the cloudprofile used by the shoot doesn't select any seed candidate", func() {
 			cloudProfile.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
+				LabelSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"foo": "bar",
+					},
+				},
+			}
+
+			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
+			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
+
+			bestSeed, err := determineSeed(&shoot, gardenCoreInformerFactory.Core().V1beta1().Seeds().Lister(), gardenCoreInformerFactory.Core().V1beta1().Shoots().Lister(), gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Lister(), schedulerConfiguration.Schedulers.Shoot.Strategy)
+
+			Expect(err).To(HaveOccurred())
+			Expect(bestSeed).To(BeNil())
+		})
+
+		It("should fail because the shoot doesn't select any seed candidate", func() {
+			shoot.Spec.SeedSelector = &gardencorev1beta1.SeedSelector{
 				LabelSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"foo": "bar",
@@ -644,8 +759,10 @@ var _ = Describe("Scheduler_Control", func() {
 		It("should fail because it cannot find a seed cluster due to invisibility", func() {
 			Expect(gardenCoreInformerFactory.Core().V1beta1().CloudProfiles().Informer().GetStore().Add(&cloudProfile)).To(Succeed())
 
-			seed.Spec.Taints = []gardencorev1beta1.SeedTaint{
-				{Key: gardencorev1beta1.SeedTaintInvisible},
+			seed.Spec.Settings = &gardencorev1beta1.SeedSettings{
+				Scheduling: &gardencorev1beta1.SeedSettingScheduling{
+					Visible: false,
+				},
 			}
 			Expect(gardenCoreInformerFactory.Core().V1beta1().Seeds().Informer().GetStore().Add(&seed)).To(Succeed())
 
@@ -665,71 +782,72 @@ var _ = Describe("Scheduler_Control", func() {
 			shoot.Spec.SeedName = nil
 			schedulerConfiguration.Schedulers.Shoot.Strategy = config.MinimalDistance
 		})
+
 		It("should find two seeds candidates having the same amount of matching characters", func() {
-			oldSeedOsEuDe200 := seed
-			oldSeedOsEuDe200.Spec.Provider.Type = "openstack"
-			oldSeedOsEuDe200.Spec.Provider.Region = "eu-de-200"
-			oldSeedOsEuDe200.Name = "os-eu-de-200"
+			oldSeedEnvironment1 := seed
+			oldSeedEnvironment1.Spec.Provider.Type = "some-type"
+			oldSeedEnvironment1.Spec.Provider.Region = "eu-de-200"
+			oldSeedEnvironment1.Name = "seed1"
 
-			newSeedCCEE := seed
-			newSeedCCEE.Spec.Provider.Type = "openstack"
-			newSeedCCEE.Spec.Provider.Region = "eu-de-2111"
-			newSeedCCEE.Name = "ccee-m3-eu1"
+			newSeedEnvironment2 := seed
+			newSeedEnvironment2.Spec.Provider.Type = "some-type"
+			newSeedEnvironment2.Spec.Provider.Region = "eu-de-2111"
+			newSeedEnvironment2.Name = "seed2"
 
-			otherSeedCCEE := seed
-			otherSeedCCEE.Spec.Provider.Type = "openstack"
-			otherSeedCCEE.Spec.Provider.Region = "eu-nl-1"
-			otherSeedCCEE.Name = "xyz"
+			otherSeedEnvironment2 := seed
+			otherSeedEnvironment2.Spec.Provider.Type = "some-type"
+			otherSeedEnvironment2.Spec.Provider.Region = "eu-nl-1"
+			otherSeedEnvironment2.Name = "xyz"
 
 			// shoot
 			testShoot := shoot
 			testShoot.Spec.Region = "eu-de-2xzxzzx"
-			testShoot.Spec.CloudProfileName = "converged-cloud"
-			testShoot.Spec.Provider.Type = "openstack"
+			testShoot.Spec.CloudProfileName = "cloudprofile2"
+			testShoot.Spec.Provider.Type = "some-type"
 
 			// cloud profile
 			testCloudProfile := cloudProfile
 			testCloudProfile.Spec.Type = "openstack"
 
-			candidates, err := getCandidates(&testShoot, []*gardencorev1beta1.Seed{&newSeedCCEE, &oldSeedOsEuDe200, &otherSeedCCEE}, schedulerConfiguration.Schedulers.Shoot.Strategy)
+			candidates, err := getCandidates(&testShoot, []*gardencorev1beta1.Seed{&newSeedEnvironment2, &oldSeedEnvironment1, &otherSeedEnvironment2}, schedulerConfiguration.Schedulers.Shoot.Strategy)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(candidates)).To(Equal(2))
-			Expect(candidates[0].Name).To(Equal(newSeedCCEE.Name))
-			Expect(candidates[1].Name).To(Equal(oldSeedOsEuDe200.Name))
+			Expect(candidates[0].Name).To(Equal(newSeedEnvironment2.Name))
+			Expect(candidates[1].Name).To(Equal(oldSeedEnvironment1.Name))
 		})
 
 		It("should find single seed candidate", func() {
-			oldSeedOsEuDe200 := seed
-			oldSeedOsEuDe200.Spec.Provider.Type = "openstack"
-			oldSeedOsEuDe200.Spec.Provider.Region = "eu-de-200"
-			oldSeedOsEuDe200.Name = "os-eu-de-200"
+			oldSeedEnvironment1 := seed
+			oldSeedEnvironment1.Spec.Provider.Type = "some-type"
+			oldSeedEnvironment1.Spec.Provider.Region = "eu-de-200"
+			oldSeedEnvironment1.Name = "seed1"
 
-			newSeedCCEE := seed
-			newSeedCCEE.Spec.Provider.Type = "openstack"
-			newSeedCCEE.Spec.Provider.Region = "eu-de-2111"
-			newSeedCCEE.Name = "ccee-m3-eu1"
+			newSeedEnvironment2 := seed
+			newSeedEnvironment2.Spec.Provider.Type = "some-type"
+			newSeedEnvironment2.Spec.Provider.Region = "eu-de-2111"
+			newSeedEnvironment2.Name = "seed2"
 
-			otherSeedCCEE := seed
-			otherSeedCCEE.Spec.Provider.Type = "openstack"
-			otherSeedCCEE.Spec.Provider.Region = "eu-nl-1"
-			otherSeedCCEE.Name = "xyz"
+			otherSeedEnvironment2 := seed
+			otherSeedEnvironment2.Spec.Provider.Type = "some-type"
+			otherSeedEnvironment2.Spec.Provider.Region = "eu-nl-1"
+			otherSeedEnvironment2.Name = "xyz"
 
 			// shoot
 			testShoot := shoot
 			testShoot.Spec.Region = "eu-de-20"
-			testShoot.Spec.CloudProfileName = "converged-cloud"
-			testShoot.Spec.Provider.Type = "openstack"
+			testShoot.Spec.CloudProfileName = "cloudprofile2"
+			testShoot.Spec.Provider.Type = "some-type"
 
 			// cloud profile
 			testCloudProfile := cloudProfile
 			testCloudProfile.Spec.Type = "openstack"
 
-			candidates, err := getCandidates(&testShoot, []*gardencorev1beta1.Seed{&newSeedCCEE, &oldSeedOsEuDe200, &otherSeedCCEE}, schedulerConfiguration.Schedulers.Shoot.Strategy)
+			candidates, err := getCandidates(&testShoot, []*gardencorev1beta1.Seed{&newSeedEnvironment2, &oldSeedEnvironment1, &otherSeedEnvironment2}, schedulerConfiguration.Schedulers.Shoot.Strategy)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(candidates)).To(Equal(1))
-			Expect(candidates[0].Name).To(Equal(oldSeedOsEuDe200.Name))
+			Expect(candidates[0].Name).To(Equal(oldSeedEnvironment1.Name))
 		})
 
 	})
@@ -758,8 +876,3 @@ var _ = Describe("Scheduler_Control", func() {
 		})
 	})
 })
-
-func makeStrPtr(v string) *string {
-	c := string(v)
-	return &c
-}

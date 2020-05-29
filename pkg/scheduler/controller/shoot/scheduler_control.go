@@ -19,17 +19,6 @@ import (
 	"fmt"
 	"strings"
 
-	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
-	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
-	gardencoreinformers "github.com/gardener/gardener/pkg/client/core/informers/externalversions"
-	gardencorelisters "github.com/gardener/gardener/pkg/client/core/listers/core/v1beta1"
-	"github.com/gardener/gardener/pkg/client/kubernetes"
-	"github.com/gardener/gardener/pkg/logger"
-	"github.com/gardener/gardener/pkg/scheduler/apis/config"
-	"github.com/gardener/gardener/pkg/scheduler/controller/common"
-	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
-	cidrvalidation "github.com/gardener/gardener/pkg/utils/validation/cidr"
-
 	"github.com/texttheater/golang-levenshtein/levenshtein"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -39,6 +28,18 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
+
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	gardencorev1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
+	gardencoreinformers "github.com/gardener/gardener/pkg/client/core/informers/externalversions"
+	gardencorelisters "github.com/gardener/gardener/pkg/client/core/listers/core/v1beta1"
+	"github.com/gardener/gardener/pkg/client/kubernetes"
+	"github.com/gardener/gardener/pkg/logger"
+	"github.com/gardener/gardener/pkg/scheduler/apis/config"
+	"github.com/gardener/gardener/pkg/scheduler/controller/common"
+	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
+	cidrvalidation "github.com/gardener/gardener/pkg/utils/validation/cidr"
 )
 
 // MsgUnschedulable is the Message for the Event on a Shoot that the Scheduler creates in case it cannot schedule the Shoot to any Seed
@@ -181,7 +182,12 @@ func determineSeed(shoot *gardencorev1beta1.Shoot, seedLister gardencorelisters.
 		return nil, err
 	}
 
-	filteredSeeds, err = filterSeedsMatchingSeedSelector(cloudProfile, filteredSeeds)
+	filteredSeeds, err = filterSeedsMatchingSeedSelector(cloudProfile.Spec.SeedSelector, "CloudProfile", filteredSeeds)
+	if err != nil {
+		return nil, err
+	}
+
+	filteredSeeds, err = filterSeedsMatchingSeedSelector(shoot.Spec.SeedSelector, "Shoot", filteredSeeds)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +211,7 @@ func determineSeed(shoot *gardencorev1beta1.Shoot, seedLister gardencorelisters.
 }
 
 func isUsableSeed(seed *gardencorev1beta1.Seed) bool {
-	return seed.DeletionTimestamp == nil && !gardencorev1beta1helper.TaintsHave(seed.Spec.Taints, gardencorev1beta1.SeedTaintInvisible) && common.VerifySeedReadiness(seed)
+	return seed.DeletionTimestamp == nil && seed.Spec.Settings.Scheduling.Visible && common.VerifySeedReadiness(seed)
 }
 
 func filterUsableSeeds(seedList []*gardencorev1beta1.Seed) ([]*gardencorev1beta1.Seed, error) {
@@ -223,24 +229,24 @@ func filterUsableSeeds(seedList []*gardencorev1beta1.Seed) ([]*gardencorev1beta1
 	return matchingSeeds, nil
 }
 
-func filterSeedsMatchingSeedSelector(cloudProfile *gardencorev1beta1.CloudProfile, seedList []*gardencorev1beta1.Seed) ([]*gardencorev1beta1.Seed, error) {
-	if cloudProfile.Spec.SeedSelector == nil || cloudProfile.Spec.SeedSelector.LabelSelector == nil {
+func filterSeedsMatchingSeedSelector(seedSelector *gardencorev1beta1.SeedSelector, kind string, seedList []*gardencorev1beta1.Seed) ([]*gardencorev1beta1.Seed, error) {
+	if seedSelector == nil || seedSelector.LabelSelector == nil {
 		return seedList, nil
 	}
-	seedSelector, err := metav1.LabelSelectorAsSelector(cloudProfile.Spec.SeedSelector.LabelSelector)
+	labelSelector, err := metav1.LabelSelectorAsSelector(seedSelector.LabelSelector)
 	if err != nil {
-		return nil, fmt.Errorf("label selector conversion failed: %v for seedSelector: %v", *cloudProfile.Spec.SeedSelector.LabelSelector, err)
+		return nil, fmt.Errorf("label selector conversion failed for %s: seed Selector %s: %v", seedSelector.LabelSelector.String(), kind, err)
 	}
 
 	var matchingSeeds []*gardencorev1beta1.Seed
 	for _, seed := range seedList {
-		if seedSelector.Matches(labels.Set(seed.Labels)) {
+		if labelSelector.Matches(labels.Set(seed.Labels)) {
 			matchingSeeds = append(matchingSeeds, seed)
 		}
 	}
 
 	if len(matchingSeeds) == 0 {
-		return nil, fmt.Errorf("none out of the %d seeds has the matching labels required by seed selector of CloudProfile '%s'. Selector: '%s'", len(seedList), cloudProfile.Name, cloudProfile.Spec.SeedSelector.String())
+		return nil, fmt.Errorf("none out of the %d seeds has the matching labels required by seed selector of '%s' (selector: '%s')", len(seedList), kind, seedSelector.String())
 	}
 	return matchingSeeds, nil
 }
@@ -299,6 +305,12 @@ func filterCandidates(shoot *gardencorev1beta1.Shoot, seedList []*gardencorev1be
 			candidateErrors[seed.Name] = fmt.Errorf("seed does not support DNS")
 			continue
 		}
+
+		if shoot.Namespace != v1beta1constants.GardenNamespace && gardencorev1beta1helper.TaintsHave(seed.Spec.Taints, gardencorev1beta1.SeedTaintProtected) {
+			candidateErrors[seed.Name] = fmt.Errorf("seed is protected but shoot is not in garden namespace")
+			continue
+		}
+
 		candidates = append(candidates, seed)
 	}
 
@@ -370,7 +382,6 @@ func determineCandidatesWithMinimalDistanceStrategy(seeds []*gardencorev1beta1.S
 	for _, seed := range seeds {
 		seedRegion := seed.Spec.Provider.Region
 		dist := distance(seedRegion, shootRegion)
-
 		// append
 		if dist == minDistance {
 			candidates = append(candidates, seed)
@@ -472,7 +483,7 @@ func networksAreDisjointed(seed *gardencorev1beta1.Seed, shoot *gardencorev1beta
 
 // ignore seed if it disables DNS and shoot has DNS but not unmanaged
 func ignoreSeedDueToDNSConfiguration(seed *gardencorev1beta1.Seed, shoot *gardencorev1beta1.Shoot) bool {
-	if !gardencorev1beta1helper.TaintsHave(seed.Spec.Taints, gardencorev1beta1.SeedTaintDisableDNS) {
+	if seed.Spec.Settings.ShootDNS.Enabled {
 		return false
 	}
 	if shoot.Spec.DNS == nil {

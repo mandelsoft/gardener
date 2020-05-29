@@ -27,10 +27,12 @@ controllers:
   controllerInstallationCare:
     concurrentSyncs: 20
     syncPeriod: 30s
+  controllerInstallationRequired:
+    concurrentSyncs: 1
   shoot:
     concurrentSyncs: 20
     syncPeriod: 1h
-    retryDuration: 24h
+    retryDuration: 12h
 #    `respectSyncPeriodOverwrite` specifies whether Shoot owners can
 #    mark their Shoots ignored (no reconciliation) or change their sync period.
 #    respectSyncPeriodOverwrite: true
@@ -40,6 +42,7 @@ controllers:
   shootCare:
     concurrentSyncs: 5
     syncPeriod: 30s
+#    staleExtensionHealthCheckThreshold: 5m
     conditionThresholds:
     - type: APIServerAvailable
       duration: 1m
@@ -50,12 +53,11 @@ controllers:
     - type: EveryNodeReady
       duration: 5m
   shootStateSync:
-    concurrentSyncs: 5
+    concurrentSyncs: 1
     syncPeriod: 30s
   seed:
     concurrentSyncs: 5
     syncPeriod: 1m
-    reserveExcessCapacity: false
 leaderElection:
   leaderElect: true
   leaseDuration: 15s
@@ -69,10 +71,19 @@ leaderElection:
 #   ttl: 10s
 logLevel: info
 kubernetesLogLevel: 0
+server:
+  https:
+    bindAddress: 0.0.0.0
+    port: 2720
+  # optional, will be self-generated during startup when empty
+  # tls:
+  #   serverCertPath: dev/tls/gardenlet.crt
+  #   serverKeyPath: dev/tls/gardenlet.key
 featureGates:
   Logging: true
   HVPA: true
   HVPAForShootedSeed: true
+  ManagedIstio: false
 seedSelector: {} # selects all seeds, only use for development purposes
 # seedConfig:
 #   metadata:

@@ -218,6 +218,7 @@ spec:
   #   apiVersion: foobar.extensions.gardener.cloud/v1alpha1
   #   kind: FooBarConfig
   #   foo: bar
+  # disabled: true # only relevant for extensions that were marked as 'globally enabled' by Gardener administrators
   networking:
     type: calico
     pods: 100.96.0.0/11
@@ -240,6 +241,8 @@ spec:
     autoUpdate:
       kubernetesVersion: true
       machineImageVersion: true
+  # confineSpecUpdateRollout: false # If set to true then changes/updates to the shoot spec will only be rolled out during
+                                    # the maintenance time window
   monitoring:
     alerting:
       emailReceivers:
@@ -260,3 +263,9 @@ spec:
     kubernetesDashboard:
       enabled: true
     # authenticationMode: basic # allowed values: basic,token
+# Explicitly specify the seed that will run the shoot control plane. 
+# seedName: my-seed
+# Provide labels of seeds that are eligible to run this shoot - will be evaluated by the scheduler
+# seedSelector:
+#   matchLabels:
+#     foo: bar

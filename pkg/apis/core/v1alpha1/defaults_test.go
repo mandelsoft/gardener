@@ -20,7 +20,9 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/utils/pointer"
 )
 
 var _ = Describe("Defaults", func() {
@@ -127,6 +129,99 @@ var _ = Describe("Defaults", func() {
 				Expect(m.Role).NotTo(HaveLen(0))
 				Expect(m.Role).To(Equal(ProjectMemberViewer))
 			}
+		})
+	})
+
+	Describe("#SetDefaults_ControllerResource", func() {
+		It("should default the primary field", func() {
+			resource := ControllerResource{}
+
+			SetDefaults_ControllerResource(&resource)
+
+			Expect(resource.Primary).To(PointTo(BeTrue()))
+		})
+
+		It("should not default the primary field", func() {
+			resource := ControllerResource{Primary: pointer.BoolPtr(false)}
+			resourceCopy := resource.DeepCopy()
+
+			SetDefaults_ControllerResource(&resource)
+
+			Expect(resource.Primary).To(Equal(resourceCopy.Primary))
+		})
+	})
+
+	Describe("#SetDefaults_ControllerDeployment", func() {
+		var (
+			ondemand = ControllerDeploymentPolicyOnDemand
+			always   = ControllerDeploymentPolicyAlways
+		)
+
+		It("should default the policy field", func() {
+			deployment := ControllerDeployment{}
+
+			SetDefaults_ControllerDeployment(&deployment)
+
+			Expect(deployment.Policy).To(PointTo(Equal(ondemand)))
+		})
+
+		It("should not default the policy field", func() {
+			deployment := ControllerDeployment{Policy: &always}
+			deploymentCopy := deployment.DeepCopy()
+
+			SetDefaults_ControllerDeployment(&deployment)
+
+			Expect(deployment.Policy).To(Equal(deploymentCopy.Policy))
+		})
+	})
+
+	Describe("#SetDefaults_Seed", func() {
+		var obj *Seed
+
+		BeforeEach(func() {
+			obj = &Seed{}
+		})
+
+		It("should default the seed settings (w/o taints)", func() {
+			SetDefaults_Seed(obj)
+
+			Expect(obj.Spec.Settings.ExcessCapacityReservation.Enabled).To(BeTrue())
+			Expect(obj.Spec.Settings.Scheduling.Visible).To(BeTrue())
+			Expect(obj.Spec.Settings.ShootDNS.Enabled).To(BeTrue())
+		})
+
+		It("should default the seed settings (w/ taints)", func() {
+			obj.Spec.Taints = []SeedTaint{
+				{Key: DeprecatedSeedTaintDisableCapacityReservation},
+				{Key: DeprecatedSeedTaintInvisible},
+				{Key: DeprecatedSeedTaintDisableDNS},
+			}
+
+			SetDefaults_Seed(obj)
+
+			Expect(obj.Spec.Settings.ExcessCapacityReservation.Enabled).To(BeFalse())
+			Expect(obj.Spec.Settings.Scheduling.Visible).To(BeFalse())
+			Expect(obj.Spec.Settings.ShootDNS.Enabled).To(BeFalse())
+		})
+
+		It("should not default the seed settings because they were provided", func() {
+			var (
+				excessCapacityReservation = false
+				scheduling                = true
+				shootDNS                  = false
+			)
+
+			obj.Spec.Settings = &SeedSettings{
+				ExcessCapacityReservation: &SeedSettingExcessCapacityReservation{Enabled: excessCapacityReservation},
+				Scheduling:                &SeedSettingScheduling{Visible: scheduling},
+				ShootDNS:                  &SeedSettingShootDNS{Enabled: shootDNS},
+			}
+
+			SetDefaults_Seed(obj)
+
+			Expect(obj.Spec.Settings.ExcessCapacityReservation.Enabled).To(Equal(excessCapacityReservation))
+			Expect(obj.Spec.Settings.Scheduling.Visible).To(Equal(scheduling))
+			Expect(obj.Spec.Settings.ShootDNS.Enabled).To(Equal(shootDNS))
 		})
 	})
 })
